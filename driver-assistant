@@ -1,0 +1,166 @@
+#!/usr/bin/python3
+
+"""Driver package query/installation tool for NVIDIA GPUs on Linux"""
+
+# (C) 2024 NVIDIA
+# Author: Alberto Milone <amilone@nvidia.com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+
+import os
+import logging
+import subprocess
+import re
+import json
+import argparse
+import sys
+
+
+import DriverAssistant.detect
+
+
+default_json_path = "/usr/share/driver-assistant/supported-gpus/supported-gpus.json"
+
+# Make sure that the PATH environment variable is set
+if not os.environ.get("PATH"):
+    os.environ["PATH"] = "/sbin:/usr/sbin:/bin:/usr/bin"
+
+instructions = {
+    "amzn-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
+    "amzn-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "debian-closed": ["sudo apt-get install -y cuda-drivers"],
+    "debian-open": [
+        "sudo apt-get install -y nvidia-kernel-open-dkms",
+        "sudo apt-get install -y cuda-drivers",
+    ],
+    "fedora-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
+    "fedora-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "mariner-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
+    "mariner-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
+    "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "opensuse-leap-closed": ["sudo zypper install -y cuda-drivers"],
+    "opensuse-leap-open": [
+        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
+        "sudo zypper install -y cuda-drivers",
+    ],
+    "sles-closed": ["sudo zypper install -y cuda-drivers"],
+    "sles-open": [
+        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
+        "sudo zypper install -y cuda-drivers",
+    ],
+    "rhel-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
+    "rhel-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
+    "ubuntu-open": [
+        "sudo apt-get install -y nvidia-driver-BRANCH-open",
+        "sudo apt-get install -y cuda-drivers-BRANCH",
+    ],
+}
+
+### ADD CLEANUP INSTRUCTIONS? https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#switching-between-driver-module-flavors
+
+
+def install_driver(driver, distro_id, version_id):
+    print("Install driver")
+    # TODO
+    # SHOW EULA and request consent
+
+
+def print_instructions(driver, distro_id, version_id):
+    #
+    if distro_id == "opensuse":
+        logging.debug()
+        distro_id == "opensuse-leap"
+
+    candidates = instructions.get("%s-%s" % (distro_id, driver))
+
+    if not candidates:
+        print(
+            "Error: could not find the instructions for %s-%s" % (distro_id, driver),
+            file=sys.stderr,
+        )
+        return False
+
+    if distro_id == "ubuntu":
+        # Check the available branch and pick the latest
+        branch = DriverAssistant.detect.ubuntu_get_latest_driver_branch()
+        if branch:
+            it = 0
+            for line in candidates:
+                candidates[it] = line.replace("BRANCH", branch)
+                it += 1
+        else:
+            print("Error: failed to get the latest driver branch", file=sys.stderr)
+            return False
+
+    print(
+        "Please copy and paste the following command%s to install the %s kernel module flavour:"
+        % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
+    )
+    for line in candidates:
+        print("  %s" % line)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="Install the recommended driver",
+        default=False,
+    )
+    parser.add_argument(
+        "--supported-gpus",
+        nargs="?",
+        type=str,
+        help="Use a different supported-gpus.json file",
+    )
+    parser.add_argument(
+        "--sys-path",
+        action="store_true",
+        help="Use a different /sys path. Useful for testing",
+    )
+    parser.add_argument(
+        "--os-release-path",
+        nargs="?",
+        type=str,
+        help="Use a different path for the os-release file. Useful for testing",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
+    )
+    args = parser.parse_args()
+
+    needs_install = args.install
+    supported_gpus = args.supported_gpus
+    sys_path = args.sys_path
+    os_release_path = args.os_release_path
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    driver = DriverAssistant.detect.recommend_driver(
+        sys_path=sys_path, supported_gpus=supported_gpus
+    )
+    if not driver:
+        print("Error: Failed to find a suitable driver", file=sys.stderr)
+        exit(1)
+    logging.debug("Recommended driver: %s" % driver)
+    distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
+    if not distro_id:
+        # print("Error: unsupported Linux distribution", file=sys.stderr)
+        exit(1)
+    logging.debug("OS detected: %s" % distro_id)
+    if needs_install:
+        install_driver(driver, distro_id, version_id)
+    else:
+        exit(0 if print_instructions(driver, distro_id, version_id) else 1)
+
+
+if __name__ == "__main__":
+    main()
