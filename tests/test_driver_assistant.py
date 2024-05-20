@@ -124,6 +124,7 @@ HOME_URL="https://aka.ms/cbl-mariner"
 BUG_REPORT_URL="https://aka.ms/cbl-mariner"
 SUPPORT_URL="https://aka.ms/cbl-mariner"'''
 
+
 sles_os_release = '''NAME="SLES"
 VERSION="15"
 VERSION_ID="15"
@@ -133,7 +134,19 @@ ID_LIKE="suse"
 ANSI_COLOR="0;32"
 CPE_NAME="cpe:/o:suse:sles:15"'''
 
-fedora_os_release = """NAME="Fedora Linux"
+
+opensuse_os_release = '''NAME="openSUSE Leap"
+VERSION="15.0"
+ID="opensuse-leap"
+ID_LIKE="suse opensuse"
+VERSION_ID="15.0"
+PRETTY_NAME="openSUSE Leap 15.0"
+ANSI_COLOR="0;32"
+CPE_NAME="cpe:/o:opensuse:leap:15.0"
+BUG_REPORT_URL="https://bugs.opensuse.org"
+HOME_URL="https://www.opensuse.org/"'''
+
+fedora_os_release = '''NAME="Fedora Linux"
 VERSION="40 (KDE Plasma)"
 ID=fedora
 VERSION_ID=40
@@ -154,7 +167,7 @@ REDHAT_SUPPORT_PRODUCT="Fedora"
 REDHAT_SUPPORT_PRODUCT_VERSION=40
 SUPPORT_END=2025-05-13
 VARIANT="KDE Plasma"
-VARIANT_ID=kde"""
+VARIANT_ID="kde"'''
 
 
 debian_os_release = '''PRETTY_NAME="Debian GNU/Linux 10 (buster)"
@@ -181,6 +194,20 @@ BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
 PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
 UBUNTU_CODENAME=mantic
 LOGO=ubuntu-logo"""
+
+
+os_release_files = {
+    "amazon": amazon_os_release,
+    "rocky": rocky_os_release,
+    "redhat": redhat_os_release,
+    "kylin": kylin_os_release,
+    "mariner": mariner_os_release,
+    "sles": sles_os_release,
+    "opensuse": opensuse_os_release,
+    "fedora": fedora_os_release,
+    "debian": debian_os_release,
+    "ubuntu": ubuntu_os_release,
+}
 
 
 def generate_fake_hardware():
@@ -452,8 +479,10 @@ def generate_fake_hardware():
 def generate_os_release(release):
     release_file = tempfile.NamedTemporaryFile(mode="w", prefix="os_release_path_", delete=False)
 
+    content = os_release_files[release]
+
     with open(release_file.name, "w") as stream:
-        stream.write(release)
+        stream.write(content)
 
     return release_file
 
@@ -470,9 +499,26 @@ class DetectTest(unittest.TestCase):
 
         self.umockdev = generate_fake_hardware()
 
+    def run_driver_assistant(self, distro_id):
+        """Run driver-assistant and return (stdout, stderr)"""
+        os_release = generate_os_release(distro_id)
+        command = [
+            "%s/driver-assistant" % root_dir,
+            "--supported-gpus",
+            get_json_file(),
+            "--sys-path",
+            self.umockdev.get_sys_dir(),
+            "--os-release-path",
+            os_release.name,
+        ]
+
+        assistant = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        return assistant.communicate()
+
     def test_get_distro(self):
         """get_distro() for fake systems"""
-        release_file = generate_os_release(fedora_os_release)
+        release_file = generate_os_release("fedora")
         (distro_id, version_id) = DriverAssistant.detect.get_distro(release_file.name)
 
         self.assertEqual(distro_id, "fedora")
@@ -552,6 +598,7 @@ class DetectTest(unittest.TestCase):
         )
 
     def test_get_nvidia_devices(self):
+        """Test get_nvidia_devices()"""
         json_file = get_json_file()
 
         # Add 3 GPUS
@@ -567,8 +614,17 @@ class DetectTest(unittest.TestCase):
 
         # Not invalid
         self.assertFalse(not devices)
-        print("Devices: %s" % devices)
+        # print("Devices: %s" % devices)
         self.assertTrue(len(devices) == 3)
+
+    def test_driver_assistant_1(self):
+        """Test driver assistant scenario 1"""
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        stdout, stderr = self.run_driver_assistant("fedora")
+
+        self.assertEqual(len(stderr), 0)
 
 
 if __name__ == "__main__":
