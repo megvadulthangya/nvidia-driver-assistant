@@ -1,16 +1,27 @@
-"""Hardware and driver package detection functionality for driver-assistant."""
+"""NVIDIA hardware and driver package detection for driver-assistant."""
 
-# (C) 2024 NVIDIA
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: MIT
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+#
 # Author: Alberto Milone <amilone@nvidia.com>
-#
-# system_modaliases() is borrowed from detect.py in ubuntu-drivers-common
-#   (C) 2012 Canonical Ltd.
-#   Author: Martin Pitt <martin.pitt@ubuntu.com>
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
 
 import os
 import logging
@@ -118,50 +129,36 @@ def get_distro(path=None):
     return (distro_id, version_id)
 
 
-def system_modaliases(sys_path=None):
-    """Get modaliases present in the system.
-
-    This ignores devices whose drivers are statically built into the kernel, as
-    you cannot replace them with other driver packages anyway.
-
-    Return a modalias → sysfs path map.
-    """
-    aliases = {}
-    devices = sys_path and "%s/devices" % (sys_path) or "/sys/devices"
+def get_system_modaliases(sys_path=None):
+    """Get a dictionary with modaliases and paths in the system"""
+    modaliases = {}
+    devices = "/sys/devices" if not sys_path else "%s/devices" % (sys_path)
     for path, dirs, files in os.walk(devices):
         modalias = None
 
-        # most devices have modalias files
+        # Get the devices that have a modalias file, ignoring
+        # the ones which mention them in the uevent file.
         if "modalias" in files:
             try:
-                with open(os.path.join(path, "modalias")) as f:
-                    modalias = f.read().strip()
+                with open(os.path.join(path, "modalias")) as file:
+                    modalias = file.read().strip()
             except IOError as e:
-                logging.debug("system_modaliases(): Cannot read %s/modalias: %s", path, e)
+                logging.debug("get_system_modaliases(): Cannot read %s/modalias: %s", path, e)
                 continue
-
-        # devices on SSB bus only mention the modalias in the uevent file (as
-        # of 2.6.24)
-        elif "ssb" in path and "uevent" in files:
-            with open(os.path.join(path, "uevent")) as fd:
-                for line in fd:
-                    if line.startswith("MODALIAS="):
-                        modalias = line.split("=", 1)[1].strip()
-                        break
 
         if not modalias:
             continue
 
-        # ignore drivers which are statically built into the kernel
-        driverlink = os.path.join(path, "driver")
-        modlink = os.path.join(driverlink, "module")
-        if os.path.islink(driverlink) and not os.path.islink(modlink):
-            # logging.debug("system_modaliases(): ignoring device %s which has no module (built into kernel)", path)
+        # Ignore built-in modules
+        driver_path = os.path.join(path, "driver")
+        module_path = os.path.join(driver_path, "module")
+        if os.path.islink(driver_path) and not os.path.islink(module_path):
+            # logging.debug("get_system_modaliases(): ignoring device %s which has no module (built into kernel)", path)
             continue
 
-        aliases[modalias] = path
+        modaliases[modalias] = path
 
-    return aliases
+    return modaliases
 
 
 def ubuntu_get_latest_driver_branch(path="/"):
@@ -194,7 +191,7 @@ def get_nvidia_devices(sys_path, supported_gpus):
     """
     # PCI_CLASS_DISPLAY 0x03
     pci_class_display = "03"
-    modaliases = system_modaliases(sys_path)
+    modaliases = get_system_modaliases(sys_path)
     json_path = default_supported_gpus if not supported_gpus else supported_gpus
 
     # PCI IDs we should consider

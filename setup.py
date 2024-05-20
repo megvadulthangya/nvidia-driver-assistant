@@ -11,7 +11,7 @@ setup(
     maintainer="Alberto Milone",
     maintainer_email="amilone@nvidia.com",
     url="https://temporaryaddress.com",
-    license="gpl",
+    license="mit",
     description="Detect the NVIDIA GPUs and recommend a driver",
     packages=["DriverAssistant"],
     data_files=[
