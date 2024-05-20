@@ -138,7 +138,8 @@ def main():
     )
     parser.add_argument(
         "--sys-path",
-        action="store_true",
+        nargs="?",
+        type=str,
         help="Use a different /sys path. Useful for testing",
     )
     parser.add_argument(
