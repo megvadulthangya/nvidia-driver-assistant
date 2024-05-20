@@ -86,7 +86,7 @@ class Device(object):
                 driver_hints_available = True
         # Legacy drivers <= 470
         if not self.driver_hint:
-            if self.legacy_branch and self.legacy_branch.split(".")[0] <= 470:
+            if self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
                 self.driver_hint = proprietary_required
 
 
