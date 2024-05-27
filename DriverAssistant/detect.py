@@ -251,10 +251,14 @@ def get_nvidia_devices(sys_path, supported_gpus):
 def print_pretty_gpu_summary(devices):
     device_lines = []
     for dev in devices.values():
-        device_lines.append("    %s - (pci_id %s)"% (dev.name, dev.id))
+        device_lines.append("  %s - (pci_id %s)" % (dev.name, dev.id))
+    it = 0
     if device_lines:
         print("Detected GPUs:")
         print("\n".join(device_lines))
+        if it == len(devices) - 1:
+            print("")
+        it += 1
     else:
         print("No NVIDIA GPUs detected")
 
