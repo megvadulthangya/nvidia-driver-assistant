@@ -358,10 +358,9 @@ def get_driver_from_json_hints(devices):
 def recommend_driver(sys_path=None, supported_gpus=None):
     """Recommend a driver using the available logic"""
     devices = get_nvidia_devices(sys_path, supported_gpus)
+    print_pretty_gpu_summary(devices)
     if not devices:
         return None
-
-    print_pretty_gpu_summary(devices)
 
     logging.debug("recommend_driver(): Do device IDs support the open driver?")
 
