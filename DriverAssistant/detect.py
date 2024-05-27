@@ -248,6 +248,17 @@ def get_nvidia_devices(sys_path, supported_gpus):
     return devices
 
 
+def print_pretty_gpu_summary(devices):
+    device_lines = []
+    for dev in devices.values():
+        device_lines.append("    %s - (pci_id %s)"% (dev.name, dev.id))
+    if device_lines:
+        print("Detected GPUs:")
+        print("\n".join(device_lines))
+    else:
+        print("No NVIDIA GPUs detected")
+
+
 def get_driver_from_vdpau_feat(devices):
     """Use the supported VDPAU feature sets to recommend a driver"""
     hints = []
@@ -345,6 +356,8 @@ def recommend_driver(sys_path=None, supported_gpus=None):
     devices = get_nvidia_devices(sys_path, supported_gpus)
     if not devices:
         return None
+
+    print_pretty_gpu_summary(devices)
 
     logging.debug("recommend_driver(): Do device IDs support the open driver?")
 
