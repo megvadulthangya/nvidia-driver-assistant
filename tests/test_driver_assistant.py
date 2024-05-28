@@ -214,7 +214,7 @@ LOGO=ubuntu-logo"""
 
 
 os_release_files = {
-    "amazn": amazon_os_release,
+    "amzn": amazon_os_release,
     "rocky": rocky_os_release,
     "rhel": redhat_os_release,
     "kylin": kylin_os_release,
