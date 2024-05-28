@@ -54,8 +54,7 @@ legacy_gpu_modalias_2 = "pci:v000010DEd00000FC6sv000010DEsd000018FEbc03sc00i00"
 legacy_gpu_modalias_3 = "pci:v000010DEd000006C0sv000010DEsd000018FEbc03sc00i00"
 
 
-amazon_os_release = '''bash-5.2# cat /etc/os-release
-NAME="Amazon Linux"
+amazon_os_release = '''NAME="Amazon Linux"
 VERSION="2023"
 ID="amzn"
 ID_LIKE="fedora"
@@ -69,8 +68,7 @@ BUG_REPORT_URL="https://github.com/amazonlinux/amazon-linux-2023"
 SUPPORT_END="2028-03-01"'''
 
 
-rocky_os_release = '''[root@24759ffb756d /]# cat /etc/os-release
-NAME="Rocky Linux"
+rocky_os_release = '''NAME="Rocky Linux"
 VERSION="8.6 (Green Obsidian)"
 ID="rocky"
 ID_LIKE="rhel centos fedora"
