@@ -146,6 +146,23 @@ CPE_NAME="cpe:/o:opensuse:leap:15.0"
 BUG_REPORT_URL="https://bugs.opensuse.org"
 HOME_URL="https://www.opensuse.org/"'''
 
+opensuse_tumbleweed_os_release = '''NAME="openSUSE Tumbleweed"
+# VERSION="20240524"
+ID="opensuse-tumbleweed"
+ID_LIKE="opensuse suse"
+VERSION_ID="20240524"
+PRETTY_NAME="openSUSE Tumbleweed"
+ANSI_COLOR="0;32"
+# CPE 2.3 format, boo#1217921
+CPE_NAME="cpe:2.3:o:opensuse:tumbleweed:20240524:*:*:*:*:*:*:*"
+#CPE 2.2 format
+#CPE_NAME="cpe:/o:opensuse:tumbleweed:20240524"
+BUG_REPORT_URL="https://bugzilla.opensuse.org"
+SUPPORT_URL="https://bugs.opensuse.org"
+HOME_URL="https://www.opensuse.org"
+DOCUMENTATION_URL="https://en.opensuse.org/Portal:Tumbleweed"
+LOGO="distributor-logo-Tumbleweed"'''
+
 fedora_os_release = '''NAME="Fedora Linux"
 VERSION="40 (KDE Plasma)"
 ID=fedora
@@ -197,13 +214,14 @@ LOGO=ubuntu-logo"""
 
 
 os_release_files = {
-    "amazon": amazon_os_release,
+    "amazn": amazon_os_release,
     "rocky": rocky_os_release,
-    "redhat": redhat_os_release,
+    "rhel": redhat_os_release,
     "kylin": kylin_os_release,
     "mariner": mariner_os_release,
     "sles": sles_os_release,
-    "opensuse": opensuse_os_release,
+    "opensuse-leap": opensuse_os_release,
+    "opensuse-tumbleweed": opensuse_tumbleweed_os_release,
     "fedora": fedora_os_release,
     "debian": debian_os_release,
     "ubuntu": ubuntu_os_release,
@@ -518,11 +536,22 @@ class DetectTest(unittest.TestCase):
 
     def test_get_distro(self):
         """get_distro() for fake systems"""
-        release_file = generate_os_release("fedora")
-        (distro_id, version_id) = DriverAssistant.detect.get_distro(release_file.name)
 
-        self.assertEqual(distro_id, "fedora")
-        self.assertEqual(version_id, "40")
+        # Test distro detection for all the supported systems
+        release_file = tempfile.NamedTemporaryFile(
+            mode="w", prefix="os_release_path_", delete=False
+        )
+        for distro in os_release_files.keys():
+            content = os_release_files[distro]
+
+            with open(release_file.name, "w") as stream:
+                stream.write(content)
+
+            (distro_id, version_id) = DriverAssistant.detect.get_distro(release_file.name)
+
+            self.assertEqual(distro_id, distro)
+            self.assertTrue(version_id)
+
         os.unlink(release_file.name)
         del release_file
 
