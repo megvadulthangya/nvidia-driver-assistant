@@ -101,7 +101,7 @@ def get_distro(path=None):
         with open(release_file, "r") as stream:
             for line in stream.readlines():
                 if line.startswith(id_pattern):
-                    distro_id = line.strip().replace(id_pattern, "")
+                    distro_id = line.strip().replace(id_pattern, "").replace('"', "")
                 elif line.startswith(ver_pattern):
                     version_id = line.strip().replace(ver_pattern, "").replace('"', "")
     except (IOError, FileNotFoundError, PermissionError) as e:
