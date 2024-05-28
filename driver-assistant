@@ -62,6 +62,11 @@ instructions = {
         "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
         "sudo zypper install -y cuda-drivers",
     ],
+    "opensuse-tumbleweed-closed": ["sudo zypper install -y cuda-drivers"],
+    "opensuse-tumbleweed-open": [
+        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
+        "sudo zypper install -y cuda-drivers",
+    ],
     "sles-closed": ["sudo zypper install -y cuda-drivers"],
     "sles-open": [
         "sudo zypper install -y nvidia-open-driver-G06-kmp-default",

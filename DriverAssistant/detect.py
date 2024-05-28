@@ -44,6 +44,7 @@ supported_distros = [
     "rhel",
     "rocky",
     "opensuse-leap",
+    "opensuse-tumbleweed",
     "sles",
 ]
 
