@@ -104,7 +104,6 @@ def print_instructions(driver, distro_id, version_id, branch_id=None):
         distro_id = "mariner"
 
     if branch_id:
-        branch = branch_id
         candidates = branch_instructions.get("%s-%s" % (distro_id, driver))
     else:
         candidates = instructions.get("%s-%s" % (distro_id, driver))
