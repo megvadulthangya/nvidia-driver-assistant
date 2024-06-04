@@ -31,6 +31,7 @@ import subprocess
 import re
 import json
 import argparse
+import string
 import sys
 
 
@@ -138,6 +139,12 @@ def main():
         help="Use a different path for the os-release file. Useful for testing",
     )
     parser.add_argument(
+        "--distro",
+        nargs="?",
+        type=str,
+        help="Specify a Linux distro. Useful for testing",
+    )
+    parser.add_argument(
         "--module-flavor",
         nargs="?",
         type=str,
@@ -152,6 +159,7 @@ def main():
     supported_gpus = args.supported_gpus
     sys_path = args.sys_path
     os_release_path = args.os_release_path
+    distro_override = args.distro
     module_override = args.module_flavor
 
     if not supported_gpus:
@@ -176,7 +184,13 @@ def main():
     elif module_override == "closed":
         driver = "closed"
 
-    distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
+    if distro_override:
+        distro_id = distro_override.rstrip(string.digits)
+        version_id = distro_override[len(distro_id):]
+        print("Running on %s%s\n" % (distro_id, version_id))
+    else:
+        distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
+
     if not distro_id:
         # print("Error: unsupported Linux distribution", file=sys.stderr)
         exit(1)
