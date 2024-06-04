@@ -32,8 +32,6 @@ import argparse
 import sys
 
 
-default_supported_gpus = "/usr/share/driver-assistant/supported-gpus/supported-gpus.json"
-
 supported_distros = [
     "amzn",
     "debian",
@@ -194,7 +192,7 @@ def get_nvidia_devices(sys_path, supported_gpus):
     # PCI_CLASS_DISPLAY 0x03
     pci_class_display = "03"
     modaliases = get_system_modaliases(sys_path)
-    json_path = default_supported_gpus if not supported_gpus else supported_gpus
+    json_path = supported_gpus
 
     # PCI IDs we should consider
     candidates = []

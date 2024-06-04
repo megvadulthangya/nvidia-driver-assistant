@@ -37,7 +37,9 @@ import sys
 import DriverAssistant.detect
 
 
-default_json_path = "/usr/share/driver-assistant/supported-gpus/supported-gpus.json"
+default_directory = os.path.dirname(os.path.realpath(__file__))
+default_json_path = os.path.join(default_directory, "supported-gpus", "supported-gpus.json")
+install_json_path = "/usr/share/driver-assistant/supported-gpus/supported-gpus.json"
 
 # Make sure that the PATH environment variable is set
 if not os.environ.get("PATH"):
@@ -162,6 +164,12 @@ def main():
     supported_gpus = args.supported_gpus
     sys_path = args.sys_path
     os_release_path = args.os_release_path
+
+    if not supported_gpus:
+        if os.path.isfile(install_json_path):
+            supported_gpus = install_json_path
+        elif os.path.isfile(default_json_path):
+            supported_gpus = default_json_path
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
