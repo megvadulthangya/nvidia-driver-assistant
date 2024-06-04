@@ -138,6 +138,12 @@ def main():
         help="Use a different path for the os-release file. Useful for testing",
     )
     parser.add_argument(
+        "--module-flavor",
+        nargs="?",
+        type=str,
+        help="Specify a kernel module flavor. Useful for testing",
+    )
+    parser.add_argument(
         "--verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
     )
     args = parser.parse_args()
@@ -146,6 +152,7 @@ def main():
     supported_gpus = args.supported_gpus
     sys_path = args.sys_path
     os_release_path = args.os_release_path
+    module_override = args.module_flavor
 
     if not supported_gpus:
         if os.path.isfile(install_json_path):
@@ -163,6 +170,12 @@ def main():
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
     logging.debug("Recommended driver: %s" % driver)
+
+    if module_override == "open":
+        driver = "open"
+    elif module_override == "closed":
+        driver = "closed"
+
     distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
     if not distro_id:
         # print("Error: unsupported Linux distribution", file=sys.stderr)
