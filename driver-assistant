@@ -175,7 +175,7 @@ def main():
         "--distro",
         nargs="?",
         type=str,
-        help="Specify a Linux distro. Useful for testing",
+        help='Specify a Linux distro using the "DISTRO:VERSION" or "DISTRO" pattern. Useful for testing',
     )
     parser.add_argument(
         "--module-flavor",
@@ -219,9 +219,17 @@ def main():
         driver = "closed"
 
     if distro_override:
-        distro_id = distro_override.rstrip(string.digits)
-        version_id = distro_override[len(distro_id) :]
-        print("Running on %s%s\n" % (distro_id, version_id))
+        if ":" in distro_override:
+            distro_id = distro_override.strip().split(":")[0]
+            version_id = distro_override.strip().split(":")[-1]
+        else:
+            distro_id = distro_override.rstrip(string.digits)
+            version_id = distro_override[len(distro_id) :]
+
+        if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
+            logging.debug("main(): detected %s, setting to opensuse" % (distro_id))
+            distro_id = "opensuse"
+        print("Running on %s %s\n" % (distro_id.capitalize(), version_id))
     else:
         distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
 

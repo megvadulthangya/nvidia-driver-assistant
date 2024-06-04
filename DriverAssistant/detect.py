@@ -116,7 +116,7 @@ def get_distro(path=None):
         logging.debug(
             "get_distro(): detected %s %s distribution is supported" % (distro_id, version_id)
         )
-        print("Running on %s%s\n" % (distro_id, version_id))
+        print("Running on %s %s\n" % (distro_id.capitalize(), version_id))
     else:
         logging.debug(
             "get_distro(): detected %s %s distribution is not supported" % (distro_id, version_id)
