@@ -547,7 +547,11 @@ class DetectTest(unittest.TestCase):
 
             (distro_id, version_id) = DriverAssistant.detect.get_distro(release_file.name)
 
-            self.assertEqual(distro_id, distro)
+            if distro_id.startswith("opensuse"):
+                # "opensuse-tumbleweed", etc will be detected as "opensuse"
+                self.assertTrue(distro_id in distro)
+            else:
+                self.assertEqual(distro_id, distro)
             self.assertTrue(version_id)
 
         os.unlink(release_file.name)
