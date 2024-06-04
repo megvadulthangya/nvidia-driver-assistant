@@ -41,8 +41,7 @@ supported_distros = [
     "mariner",
     "rhel",
     "rocky",
-    "opensuse-leap",
-    "opensuse-tumbleweed",
+    "opensuse",
     "sles",
 ]
 
@@ -109,14 +108,15 @@ def get_distro(path=None):
         )
         return (distro_id, version_id)
 
-    if distro_id == "opensuse":
-        logging.debug("get_distro(): detected %s, setting to opensuse-leap" % (distro_id))
-        distro_id = "opensuse-leap"
+    if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
+        logging.debug("get_distro(): detected %s, setting to opensuse" % (distro_id))
+        distro_id = "opensuse"
 
     if distro_id in supported_distros:
         logging.debug(
             "get_distro(): detected %s %s distribution is supported" % (distro_id, version_id)
         )
+        print("Running on %s %s\n" % (distro_id.capitalize(), version_id))
     else:
         logging.debug(
             "get_distro(): detected %s %s distribution is not supported" % (distro_id, version_id)

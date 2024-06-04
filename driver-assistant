@@ -31,6 +31,7 @@ import subprocess
 import re
 import json
 import argparse
+import string
 import sys
 
 
@@ -48,58 +49,64 @@ if not os.environ.get("PATH"):
 instructions = {
     "amzn-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "amzn-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "debian-closed": ["sudo apt-get install -y cuda-drivers"],
-    "debian-open": [
-        "sudo apt-get install -y nvidia-kernel-open-dkms",
-        "sudo apt-get install -y cuda-drivers",
-    ],
+    "debian-closed": ["sudo apt-get install -Vy cuda-drivers"],
+    "debian-open": ["sudo apt-get install -Vy nvidia-open"],
     "fedora-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "fedora-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "mariner-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
-    "mariner-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "mariner-closed": ["Not supported"],
+    "mariner-open": ["sudo tdnf -y install nvidia-open"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "opensuse-leap-closed": ["sudo zypper install -y cuda-drivers"],
-    "opensuse-leap-open": [
-        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
-        "sudo zypper install -y cuda-drivers",
-    ],
-    "opensuse-tumbleweed-closed": ["sudo zypper install -y cuda-drivers"],
-    "opensuse-tumbleweed-open": [
-        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
-        "sudo zypper install -y cuda-drivers",
-    ],
+    "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers"],
+    "opensuse-open": ["sudo zypper install nvidia-open"],
     "sles-closed": ["sudo zypper install -y cuda-drivers"],
-    "sles-open": [
-        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
-        "sudo zypper install -y cuda-drivers",
-    ],
+    "sles-open": ["sudo zypper install -y nvidia-open"],
     "rhel-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "rhel-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
     "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
-    "ubuntu-open": [
-        "sudo apt-get install -y nvidia-driver-BRANCH-open",
-        "sudo apt-get install -y cuda-drivers-BRANCH",
-    ],
+    "ubuntu-open": ["sudo apt-get install -y nvidia-open"],
+}
+
+branch_instructions = {
+    "amzn-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
+    "amzn-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+    "debian-closed": ["sudo apt-get install -Vy cuda-drivers-BRANCH"],
+    "debian-open": ["sudo apt-get install -Vy nvidia-open-BRANCH"],
+    "fedora-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
+    "fedora-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+    "mariner-closed": ["Not supported"],
+    "mariner-open": ["sudo tdnf -y install nvidia-open-BRANCH"],
+    "kylin-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
+    "kylin-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+    "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers-BRANCH"],
+    "opensuse-open": ["sudo zypper install nvidia-open-BRANCH"],
+    "sles-closed": ["sudo zypper install -y cuda-drivers-BRANCH"],
+    "sles-open": ["sudo zypper install -y nvidia-open-BRANCH"],
+    "rhel-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
+    "rhel-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+    "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
+    "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
 }
 
 ### ADD CLEANUP INSTRUCTIONS? https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#switching-between-driver-module-flavors
 
 
-def install_driver(driver, distro_id, version_id):
+def install_driver(driver, distro_id, version_id, branch_id=None):
     print("Install driver")
     raise NotImplementedError
     # TODO
     # SHOW EULA and request consent
 
 
-def print_instructions(driver, distro_id, version_id):
+def print_instructions(driver, distro_id, version_id, branch_id=None):
     #
-    if distro_id == "opensuse":
-        logging.debug()
-        distro_id == "opensuse-leap"
+    if distro_id == "cm":
+        distro_id = "mariner"
 
-    candidates = instructions.get("%s-%s" % (distro_id, driver))
+    if branch_id:
+        candidates = branch_instructions.get("%s-%s" % (distro_id, driver))
+    else:
+        candidates = instructions.get("%s-%s" % (distro_id, driver))
 
     if not candidates:
         print(
@@ -108,17 +115,20 @@ def print_instructions(driver, distro_id, version_id):
         )
         return False
 
-    if distro_id == "ubuntu":
+    if distro_id == "ubuntu" and not branch_id:
         # Check the available branch and pick the latest
-        branch = DriverAssistant.detect.ubuntu_get_latest_driver_branch()
-        if branch:
-            it = 0
-            for line in candidates:
-                candidates[it] = line.replace("BRANCH", branch)
-                it += 1
+        latest_branch = DriverAssistant.detect.ubuntu_get_latest_driver_branch()
+        if latest_branch:
+            branch_id = latest_branch
         else:
             print("Error: failed to get the latest driver branch", file=sys.stderr)
             return False
+
+    if branch_id:
+        it = 0
+        for line in candidates:
+            candidates[it] = line.replace("BRANCH", branch_id)
+            it += 1
 
     print(
         "Please copy and paste the following command%s to install the %s kernel module flavour:"
@@ -136,6 +146,12 @@ def main():
         action="store_true",
         help="Install the recommended driver",
         default=False,
+    )
+    parser.add_argument(
+        "--branch",
+        nargs="?",
+        type=str,
+        help="Specify a NVIDIA Driver branch",
     )
     parser.add_argument(
         "--supported-gpus",
@@ -156,14 +172,29 @@ def main():
         help="Use a different path for the os-release file. Useful for testing",
     )
     parser.add_argument(
+        "--distro",
+        nargs="?",
+        type=str,
+        help='Specify a Linux distro using the "DISTRO:VERSION" or "DISTRO" pattern. Useful for testing',
+    )
+    parser.add_argument(
+        "--module-flavor",
+        nargs="?",
+        type=str,
+        help="Specify a kernel module flavor. Useful for testing",
+    )
+    parser.add_argument(
         "--verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
     )
     args = parser.parse_args()
 
     needs_install = args.install
+    branch_locked = args.branch
     supported_gpus = args.supported_gpus
     sys_path = args.sys_path
     os_release_path = args.os_release_path
+    distro_override = args.distro
+    module_override = args.module_flavor
 
     if not supported_gpus:
         if os.path.isfile(install_json_path):
@@ -181,15 +212,35 @@ def main():
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
     logging.debug("Recommended driver: %s" % driver)
-    distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
+
+    if module_override == "open":
+        driver = "open"
+    elif module_override == "closed":
+        driver = "closed"
+
+    if distro_override:
+        if ":" in distro_override:
+            distro_id = distro_override.strip().split(":")[0]
+            version_id = distro_override.strip().split(":")[-1]
+        else:
+            distro_id = distro_override.rstrip(string.digits)
+            version_id = distro_override[len(distro_id) :]
+
+        if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
+            logging.debug("main(): detected %s, setting to opensuse" % (distro_id))
+            distro_id = "opensuse"
+        print("Running on %s %s\n" % (distro_id.capitalize(), version_id))
+    else:
+        distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
+
     if not distro_id:
         # print("Error: unsupported Linux distribution", file=sys.stderr)
         exit(1)
     logging.debug("OS detected: %s" % distro_id)
     if needs_install:
-        install_driver(driver, distro_id, version_id)
+        install_driver(driver, distro_id, version_id, branch_locked)
     else:
-        exit(0 if print_instructions(driver, distro_id, version_id) else 1)
+        exit(0 if print_instructions(driver, distro_id, version_id, branch_locked) else 1)
 
 
 if __name__ == "__main__":
