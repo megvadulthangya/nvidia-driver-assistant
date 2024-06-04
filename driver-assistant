@@ -48,39 +48,22 @@ if not os.environ.get("PATH"):
 instructions = {
     "amzn-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "amzn-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "debian-closed": ["sudo apt-get install -y cuda-drivers"],
-    "debian-open": [
-        "sudo apt-get install -y nvidia-kernel-open-dkms",
-        "sudo apt-get install -y cuda-drivers",
-    ],
+    "debian-closed": ["sudo apt-get install -Vy cuda-drivers"],
+    "debian-open": ["sudo apt-get install -Vy nvidia-open"],
     "fedora-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "fedora-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "mariner-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
-    "mariner-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "mariner-closed": ["Not supported"],
+    "mariner-open": ["sudo tdnf -y install nvidia-open"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "opensuse-leap-closed": ["sudo zypper install -y cuda-drivers"],
-    "opensuse-leap-open": [
-        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
-        "sudo zypper install -y cuda-drivers",
-    ],
-    "opensuse-tumbleweed-closed": ["sudo zypper install -y cuda-drivers"],
-    "opensuse-tumbleweed-open": [
-        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
-        "sudo zypper install -y cuda-drivers",
-    ],
+    "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers"],
+    "opensuse-open": ["sudo zypper install nvidia-open"],
     "sles-closed": ["sudo zypper install -y cuda-drivers"],
-    "sles-open": [
-        "sudo zypper install -y nvidia-open-driver-G06-kmp-default",
-        "sudo zypper install -y cuda-drivers",
-    ],
+    "sles-open": ["sudo zypper install -y nvidia-open"],
     "rhel-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "rhel-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
     "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
-    "ubuntu-open": [
-        "sudo apt-get install -y nvidia-driver-BRANCH-open",
-        "sudo apt-get install -y cuda-drivers-BRANCH",
-    ],
+    "ubuntu-open": ["sudo apt-get install -y nvidia-open"],
 }
 
 ### ADD CLEANUP INSTRUCTIONS? https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#switching-between-driver-module-flavors
@@ -95,9 +78,8 @@ def install_driver(driver, distro_id, version_id):
 
 def print_instructions(driver, distro_id, version_id):
     #
-    if distro_id == "opensuse":
-        logging.debug()
-        distro_id == "opensuse-leap"
+    if distro_id == "cm":
+        distro_id = "mariner"
 
     candidates = instructions.get("%s-%s" % (distro_id, driver))
 
