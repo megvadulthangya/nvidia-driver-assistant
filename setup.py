@@ -19,7 +19,6 @@ setup(
     data_files=[
         ("/usr/share/driver-assistant/supported-gpus/", glob.glob("supported-gpus/*")),
         ("/usr/share/driver-assistant/driver_eula/", ["driver_eula/LICENSE"]),
-        ("/usr/share/doc/driver-assistant/", ["README"]),
     ]
     + extra_data,
     scripts=["driver-assistant"],
