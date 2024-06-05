@@ -128,11 +128,11 @@ def process_results(driver, distro_id, version_id, branch_id=None, install=False
             % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
         )
         for line in candidates:
-            print("  %s" % line)
+            print("  %s\n" % line)
             status = os.system(line)
             if status != 0:
                 print(
-                    "Error: failed to execute the following command: %s" % (line),
+                    "\nError: failed to execute the following command:\n  %s" % (line),
                     file=sys.stderr,
                 )
                 break
