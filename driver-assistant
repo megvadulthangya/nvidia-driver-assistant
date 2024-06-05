@@ -251,7 +251,7 @@ def main():
         if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
             logging.debug("main(): detected %s, setting to opensuse" % (distro_id))
             distro_id = "opensuse"
-        print("Running on %s %s\n" % (distro_id.capitalize(), version_id))
+        print("Detected system:\n  %s %s\n" % (distro_id.capitalize(), version_id))
     else:
         distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
 
