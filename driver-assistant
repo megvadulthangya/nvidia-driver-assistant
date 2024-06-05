@@ -148,8 +148,12 @@ def process_results(driver, distro_id, version_id, branch_id=None, install=False
 
 
 def install_driver(driver, distro_id, version_id, branch_id=None):
-    # TODO
-    # SHOW EULA and request consent
+    # Point users to the EULA
+    print(
+        "Using the NVIDIA driver implies acceptance of the NVIDIA Software\n"
+        'License Agreement, contained in the "LICENSE" file in the\n'
+        '"/usr/share/driver-assistant/driver_eula" directory\n'
+    )
     return process_results(driver, distro_id, version_id, branch_id=branch_id, install=True)
 
 

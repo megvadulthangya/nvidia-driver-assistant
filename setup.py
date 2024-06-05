@@ -16,7 +16,8 @@ setup(
     packages=["DriverAssistant"],
     data_files=[
         ("/usr/share/driver-assistant/", "supported-gpus"),
-        ("/usr/share/doc/driver-assistant/", ["README"]),
+        ("/usr/share/doc/driver-assistant/", ["README"],
+        ("/usr/share/driver-assistant/", "driver_eula"),
     ]
     + extra_data,
     scripts=["driver-assistant"],
