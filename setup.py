@@ -2,6 +2,8 @@
 
 from setuptools import setup
 
+import glob
+
 extra_data = []
 
 setup(
@@ -15,9 +17,9 @@ setup(
     description="Detect the NVIDIA GPUs and recommend a driver",
     packages=["DriverAssistant"],
     data_files=[
-        ("/usr/share/driver-assistant/", "supported-gpus"),
-        ("/usr/share/doc/driver-assistant/", ["README"],
-        ("/usr/share/driver-assistant/", "driver_eula"),
+        ("/usr/share/driver-assistant/supported-gpus/", glob.glob("supported-gpus/*")),
+        ("/usr/share/driver-assistant/driver_eula/", ["driver_eula/LICENSE"]),
+        ("/usr/share/doc/driver-assistant/", ["README"]),
     ]
     + extra_data,
     scripts=["driver-assistant"],
