@@ -13,6 +13,15 @@ distributions in the next section).
 Optionally, `driver-assistant --install`, can also install the driver
 automatically.
 
+Additional supported arguments:
+- `--branch [BRANCH]` - Specify the desired NVIDIA driver branch
+- `--supported-gpus [SUPPORTED_GPUS]` - Use a different version of the supported-gpus.json file
+- `--sys-path [SYS_PATH]` - Use a different /sys path. Useful for testing
+- `--os-release-path [OS_RELEASE_PATH]` - Use a different path for the os-release file. Useful for testing
+- `--distro [DISTRO]` - Specify a Linux distro using the "DISTRO:VERSION" or "DISTRO" pattern. Useful for testing
+- `--module-flavor [MODULE_FLAVOR]` - Specify a kernel module flavor. Useful for testing
+- `--verbose` - Verbose output
+
 Please see `driver-assistant --help` for further details.
 
 ## Supported Linux distributions
