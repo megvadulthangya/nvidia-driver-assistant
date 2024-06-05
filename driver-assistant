@@ -91,15 +91,7 @@ branch_instructions = {
 ### ADD CLEANUP INSTRUCTIONS? https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#switching-between-driver-module-flavors
 
 
-def install_driver(driver, distro_id, version_id, branch_id=None):
-    print("Install driver")
-    raise NotImplementedError
-    # TODO
-    # SHOW EULA and request consent
-
-
-def print_instructions(driver, distro_id, version_id, branch_id=None):
-    #
+def process_results(driver, distro_id, version_id, branch_id=None, install=False):
     if distro_id == "cm":
         distro_id = "mariner"
 
@@ -130,13 +122,39 @@ def print_instructions(driver, distro_id, version_id, branch_id=None):
             candidates[it] = line.replace("BRANCH", branch_id)
             it += 1
 
-    print(
-        "Please copy and paste the following command%s to install the %s kernel module flavour:"
-        % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
-    )
-    for line in candidates:
-        print("  %s" % line)
+    if install:
+        print(
+            "Installing the following package%s for the %s kernel module flavour:"
+            % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
+        )
+        for line in candidates:
+            print("  %s" % line)
+            status = os.system(line)
+            if status != 0:
+                print(
+                    "Error: failed to execute the following command: %s" % (line),
+                    file=sys.stderr,
+                )
+                break
+        return status == 0
+    else:
+        print(
+            "Please copy and paste the following command%s to install the %s kernel module flavour:"
+            % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
+        )
+        for line in candidates:
+            print("  %s" % line)
     return True
+
+
+def install_driver(driver, distro_id, version_id, branch_id=None):
+    # TODO
+    # SHOW EULA and request consent
+    return process_results(driver, distro_id, version_id, branch_id=branch_id, install=True)
+
+
+def print_instructions(driver, distro_id, version_id, branch_id=None):
+    return process_results(driver, distro_id, version_id, branch_id=branch_id, install=False)
 
 
 def main():
