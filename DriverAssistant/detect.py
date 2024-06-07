@@ -29,6 +29,7 @@ import subprocess
 import re
 import json
 import argparse
+import string
 import sys
 
 
@@ -176,6 +177,18 @@ def get_distro(path=None):
         )
 
     return system_info
+
+
+def override_distro(distro_override):
+    """Process the --distro argument and return a SystemInfo object"""
+    if ":" in distro_override:
+        distro_id = distro_override.strip().split(":")[0]
+        version_id = distro_override.strip().split(":")[-1]
+    else:
+        distro_id = distro_override.rstrip(string.digits)
+        version_id = distro_override[len(distro_id) :]
+
+    return SystemInfo(distro_id, version_id, "")
 
 
 def get_system_modaliases(sys_path=None):

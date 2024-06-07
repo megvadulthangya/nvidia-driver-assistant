@@ -569,6 +569,23 @@ class DetectTest(unittest.TestCase):
         os.unlink(release_file.name)
         del release_file
 
+    def test_distro_override(self):
+        original_id = "fedora"
+        fake_id = "ubuntu"
+        system_info = DriverAssistant.detect.override_distro(fake_id)
+
+        self.assertTrue(system_info)
+        self.assertTrue(fake_id in [system_info.id, system_info.original_id])
+        self.assertFalse(system_info.version_id)
+
+        # Let's try overriding the version too
+        fake_id = "ubuntu:24.04"
+        system_info = DriverAssistant.detect.override_distro(fake_id)
+
+        self.assertTrue(system_info)
+        self.assertTrue(fake_id.split(":")[0] in [system_info.id, system_info.original_id])
+        self.assertTrue(system_info.version_id)
+
     def test_get_system_modaliases(self):
         """Test get_system_modaliases() using our fake hardware"""
 
