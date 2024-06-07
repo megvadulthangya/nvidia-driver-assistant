@@ -53,8 +53,8 @@ instructions = {
     "debian-open": ["sudo apt-get install -Vy nvidia-open"],
     "fedora-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "fedora-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "mariner-closed": ["Not supported"],
-    "mariner-open": ["sudo tdnf -y install nvidia-open"],
+    "azurelinux-closed": ["Not supported"],
+    "azurelinux-open": ["sudo tdnf -y install nvidia-open"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers"],
@@ -74,8 +74,8 @@ branch_instructions = {
     "debian-open": ["sudo apt-get install -Vy nvidia-open-BRANCH"],
     "fedora-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
     "fedora-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
-    "mariner-closed": ["Not supported"],
-    "mariner-open": ["sudo tdnf -y install nvidia-open-BRANCH"],
+    "azurelinux-closed": ["Not supported"],
+    "azurelinux-open": ["sudo tdnf -y install nvidia-open-BRANCH"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers-BRANCH"],
@@ -92,9 +92,6 @@ branch_instructions = {
 
 
 def process_results(driver, distro_id, version_id, branch_id=None, install=False):
-    if distro_id == "cm" or distro_id == "azurelinux":
-        distro_id = "mariner"
-
     if branch_id:
         candidates = branch_instructions.get("%s-%s" % (distro_id, driver))
     else:
@@ -217,6 +214,7 @@ def main():
     os_release_path = args.os_release_path
     distro_override = args.distro
     module_override = args.module_flavor
+    system_info = None
 
     if not supported_gpus:
         if os.path.isfile(install_json_path):
@@ -248,21 +246,24 @@ def main():
             distro_id = distro_override.rstrip(string.digits)
             version_id = distro_override[len(distro_id) :]
 
-        if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
-            logging.debug("main(): detected %s, setting to opensuse" % (distro_id))
-            distro_id = "opensuse"
-        print("Detected system:\n  %s %s\n" % (distro_id, version_id))
-    else:
-        distro_id, version_id, name = DriverAssistant.detect.get_distro(os_release_path)
+        system_info = detect.SystemInfo(distro_id, version_id, "")
 
-    if not distro_id:
+        print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id))
+    else:
+        system_info = DriverAssistant.detect.get_distro(os_release_path)
+
+    if not system_info:
         # print("Error: unsupported Linux distribution", file=sys.stderr)
         exit(1)
-    logging.debug("OS detected: %s" % distro_id)
+    logging.debug("OS detected: %s" % system_info.id)
     if needs_install:
-        install_driver(driver, distro_id, version_id, branch_locked)
+        install_driver(driver, system_info.id, system_info.version_id, branch_locked)
     else:
-        exit(0 if print_instructions(driver, distro_id, version_id, branch_locked) else 1)
+        exit(
+            0
+            if print_instructions(driver, system_info.id, system_info.version_id, branch_locked)
+            else 1
+        )
 
 
 if __name__ == "__main__":

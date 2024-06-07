@@ -38,7 +38,7 @@ supported_distros = [
     "ubuntu",
     "fedora",
     "kylin",
-    "mariner",
+    "azurelinux",
     "rhel",
     "rocky",
     "opensuse",
@@ -59,6 +59,26 @@ proprietary_supported = "proprietary_supported"
 default = "open_required"
 proprietary_prefs = (proprietary_required, proprietary_supported)
 driver_hints_available = False
+
+
+class SystemInfo(object):
+    """Class to represent the information from the os-release file"""
+
+    def __init__(self, id, version_id, pretty_name):
+        super(SystemInfo, self).__init__()
+        self.id = id
+        self.original_id = id
+        self.version_id = version_id
+        self.pretty_name = pretty_name
+        self.update_info()
+
+    def update_info(self):
+        if self.id in ["opensuse-leap", "opensuse-tumbleweed"]:
+            self.id = "opensuse"
+            logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
+        elif self.id in ["cm", "mariner"]:
+            self.id = "azurelinux"
+            logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
 
 
 class Device(object):
@@ -98,6 +118,7 @@ def get_distro(path=None):
     ver_pattern = "VERSION_ID="
     name_pattern_a = "NAME="
     name_pattern_b = "PRETTY_NAME="
+    system_info = None
     try:
         with open(release_file, "r") as stream:
             for line in stream.readlines():
@@ -112,32 +133,45 @@ def get_distro(path=None):
                         .replace(name_pattern_a, "")
                         .replace('"', "")
                     )
+        system_info = SystemInfo(distro_id, version_id, name)
 
     except (IOError, FileNotFoundError, PermissionError) as e:
         logging.error(
             "failed to detect Linux distribution: cannot read %s: %s" % (release_file, e)
         )
-        return (distro_id, version_id, name)
+        return system_info
 
-    if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
-        logging.debug("get_distro(): detected %s, setting to opensuse" % (distro_id))
-        distro_id = "opensuse"
-
-    if distro_id in supported_distros:
+    if system_info.id in supported_distros:
         logging.debug(
-            "get_distro(): detected %s %s distribution is supported" % (distro_id, version_id)
+            "get_distro(): detected %s%s %s distribution is supported"
+            % (
+                system_info.id,
+                " %s" % system_info.original_id if system_info.id != system_info.id else "",
+                system_info.version_id,
+            )
         )
-        print("Detected system:\n  %s %s\n" % (name if name else distro_id, version_id))
+        print(
+            "Detected system:\n  %s %s\n"
+            % (
+                system_info.pretty_name if system_info.pretty_name else system_info.id,
+                system_info.version_id,
+            )
+        )
     else:
         logging.debug(
-            "get_distro(): detected %s %s distribution is not supported" % (distro_id, version_id)
+            "get_distro(): detected %s %s distribution is not supported"
+            % (system_info.distro_id, system_info.version_id)
         )
         logging.error(
-            "Error: detected %s %s distribution is not supported" % (distro_id, version_id),
+            "Error: detected %s%s %s distribution is not supported"
+            % (
+                system_info.id,
+                " %s" % system_info.original_id if system_info.id != system_info.id else "",
+                system_info.version_id,
+            )
         )
-        distro_id = ""
 
-    return (distro_id, version_id, name)
+    return system_info
 
 
 def get_system_modaliases(sys_path=None):

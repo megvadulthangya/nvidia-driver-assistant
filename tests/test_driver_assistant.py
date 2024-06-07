@@ -553,20 +553,18 @@ class DetectTest(unittest.TestCase):
         release_file = tempfile.NamedTemporaryFile(
             mode="w", prefix="os_release_path_", delete=False
         )
+        system_info = None
         for distro in os_release_files.keys():
             content = os_release_files[distro]
 
             with open(release_file.name, "w") as stream:
                 stream.write(content)
 
-            (distro_id, version_id, name) = DriverAssistant.detect.get_distro(release_file.name)
+            system_info = DriverAssistant.detect.get_distro(release_file.name)
 
-            if distro_id.startswith("opensuse"):
-                # "opensuse-tumbleweed", etc will be detected as "opensuse"
-                self.assertTrue(distro_id in distro)
-            else:
-                self.assertEqual(distro_id, distro)
-            self.assertTrue(version_id)
+            self.assertTrue(system_info)
+            self.assertTrue(distro in [system_info.id, system_info.original_id])
+            self.assertTrue(system_info.version_id)
 
         os.unlink(release_file.name)
         del release_file
