@@ -153,7 +153,11 @@ def get_distro(path=None):
         print(
             "Detected system:\n  %s %s\n"
             % (
-                system_info.pretty_name if system_info.pretty_name else system_info.id,
+                (
+                    system_info.pretty_name.replace(system_info.version_id, "").strip()
+                    if system_info.pretty_name
+                    else system_info.id
+                ),
                 system_info.version_id,
             )
         )
