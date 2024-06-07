@@ -108,8 +108,8 @@ def get_distro(path=None):
                 elif line.startswith(name_pattern_a) or line.startswith(name_pattern_b):
                     name = (
                         line.strip()
-                        .replace(name_pattern_a, "")
                         .replace(name_pattern_b, "")
+                        .replace(name_pattern_a, "")
                         .replace('"', "")
                     )
 
