@@ -559,7 +559,7 @@ class DetectTest(unittest.TestCase):
             with open(release_file.name, "w") as stream:
                 stream.write(content)
 
-            (distro_id, version_id) = DriverAssistant.detect.get_distro(release_file.name)
+            (distro_id, version_id, name) = DriverAssistant.detect.get_distro(release_file.name)
 
             if distro_id.startswith("opensuse"):
                 # "opensuse-tumbleweed", etc will be detected as "opensuse"
