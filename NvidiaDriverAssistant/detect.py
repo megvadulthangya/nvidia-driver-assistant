@@ -212,7 +212,6 @@ def get_system_modaliases(sys_path=None):
     devices = "/sys/devices" if not sys_path else "%s/devices" % (sys_path)
     for path, dirs, files in os.walk(devices):
         modalias = None
-
         # Get the devices that have a modalias file, ignoring
         # the ones which mention them in the uevent file.
         if "modalias" in files:
@@ -220,7 +219,7 @@ def get_system_modaliases(sys_path=None):
                 with open(os.path.join(path, "modalias")) as file:
                     modalias = file.read().strip()
             except IOError as e:
-                logging.debug("get_system_modaliases(): Cannot read %s/modalias: %s", path, e)
+                logging.debug("get_system_modaliases(): failed to read %s/modalias: %s", path, e)
                 continue
 
         if not modalias:
@@ -229,10 +228,9 @@ def get_system_modaliases(sys_path=None):
         # Ignore built-in modules
         driver_path = os.path.join(path, "driver")
         module_path = os.path.join(driver_path, "module")
-        if os.path.islink(driver_path) and not os.path.islink(module_path):
-            # logging.debug("get_system_modaliases(): ignoring device %s which has no module (built into kernel)", path)
-            continue
 
+        if os.path.islink(driver_path) and not os.path.islink(module_path):
+            continue
         modaliases[modalias] = path
 
     return modaliases
@@ -306,10 +304,12 @@ def get_nvidia_devices(sys_path, supported_gpus):
                 logging.error("failed to load %s: %s" % json_path)
                 return None
             for gpu in gpus:
-                for did in candidates:
-                    if gpu["devid"] == did:
-                        device = Device(did, gpu["name"], gpu["features"], gpu.get("legacybranch"))
-                        devices[did] = device
+                for dev_id in candidates:
+                    if gpu["devid"] == dev_id:
+                        device = Device(
+                            dev_id, gpu["name"], gpu["features"], gpu.get("legacybranch")
+                        )
+                        devices[dev_id] = device
     except (IOError, FileNotFoundError, PermissionError) as e:
         logging.error("failed to read read %s: %s" % (json_path, e))
         return None
