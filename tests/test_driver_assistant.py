@@ -211,12 +211,26 @@ UBUNTU_CODENAME=mantic
 LOGO=ubuntu-logo"""
 
 
+azure_os_release = """
+NAME="Azure Linux Toolchain"
+VERSION="3.0.2024"
+ID=azurelinux
+VERSION_ID="3.0"
+PRETTY_NAME="Azure Linux 3.0"
+ANSI_COLOR="1;34"
+HOME_URL="https://aka.ms/cbl-mariner"
+BUG_REPORT_URL="https://aka.ms/cbl-mariner"
+SUPPORT_URL="https://aka.ms/cbl-mariner"
+"""
+
+
 os_release_files = {
     "amzn": amazon_os_release,
     "rocky": rocky_os_release,
     "rhel": redhat_os_release,
     "kylin": kylin_os_release,
     "mariner": mariner_os_release,
+    "azurelinux": azure_os_release,
     "sles": sles_os_release,
     "opensuse-leap": opensuse_os_release,
     "opensuse-tumbleweed": opensuse_tumbleweed_os_release,

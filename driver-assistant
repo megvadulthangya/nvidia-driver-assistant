@@ -92,7 +92,7 @@ branch_instructions = {
 
 
 def process_results(driver, distro_id, version_id, branch_id=None, install=False):
-    if distro_id == "cm":
+    if distro_id == "cm" or distro_id == "azurelinux":
         distro_id = "mariner"
 
     if branch_id:
@@ -251,9 +251,9 @@ def main():
         if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
             logging.debug("main(): detected %s, setting to opensuse" % (distro_id))
             distro_id = "opensuse"
-        print("Detected system:\n  %s %s\n" % (distro_id.capitalize(), version_id))
+        print("Detected system:\n  %s %s\n" % (distro_id, version_id))
     else:
-        distro_id, version_id = DriverAssistant.detect.get_distro(os_release_path)
+        distro_id, version_id, name = DriverAssistant.detect.get_distro(os_release_path)
 
     if not distro_id:
         # print("Error: unsupported Linux distribution", file=sys.stderr)

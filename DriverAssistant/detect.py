@@ -93,8 +93,11 @@ def get_distro(path=None):
     release_file = "/etc/os-release" if not path else path
     distro_id = ""
     version_id = ""
+    name = ""
     id_pattern = "ID="
     ver_pattern = "VERSION_ID="
+    name_pattern_a = "NAME="
+    name_pattern_b = "PRETTY_NAME="
     try:
         with open(release_file, "r") as stream:
             for line in stream.readlines():
@@ -102,11 +105,19 @@ def get_distro(path=None):
                     distro_id = line.strip().replace(id_pattern, "").replace('"', "")
                 elif line.startswith(ver_pattern):
                     version_id = line.strip().replace(ver_pattern, "").replace('"', "")
+                elif line.startswith(name_pattern_a) or line.startswith(name_pattern_b):
+                    name = (
+                        line.strip()
+                        .replace(name_pattern_a, "")
+                        .replace(name_pattern_b, "")
+                        .replace('"', "")
+                    )
+
     except (IOError, FileNotFoundError, PermissionError) as e:
         logging.error(
             "failed to detect Linux distribution: cannot read %s: %s" % (release_file, e)
         )
-        return (distro_id, version_id)
+        return (distro_id, version_id, name)
 
     if distro_id == "opensuse-leap" or distro_id == "opensuse-tumbleweed":
         logging.debug("get_distro(): detected %s, setting to opensuse" % (distro_id))
@@ -116,7 +127,7 @@ def get_distro(path=None):
         logging.debug(
             "get_distro(): detected %s %s distribution is supported" % (distro_id, version_id)
         )
-        print("Detected system:\n  %s %s\n" % (distro_id.capitalize(), version_id))
+        print("Detected system:\n  %s %s\n" % (name if name else distro_id, version_id))
     else:
         logging.debug(
             "get_distro(): detected %s %s distribution is not supported" % (distro_id, version_id)
@@ -126,7 +137,7 @@ def get_distro(path=None):
         )
         distro_id = ""
 
-    return (distro_id, version_id)
+    return (distro_id, version_id, name)
 
 
 def get_system_modaliases(sys_path=None):
