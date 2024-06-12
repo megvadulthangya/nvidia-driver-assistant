@@ -47,13 +47,13 @@ supported_distros = [
 ]
 
 # Quite old up to Fermi (Legacy, up to 470.x)
-vdpau_group_a = [chr(x).upper() for x in range(ord("a"), ord("c") + 1)]
+vdpau_group_a = [chr(x) for x in range(ord("a"), ord("c") + 1)]
 
 # Maxwell, Pascal, Volta - closedRM
-vdpau_group_b = [chr(x).upper() for x in range(ord("d"), ord("i") + 1)]
+vdpau_group_b = [chr(x) for x in range(ord("d"), ord("i") + 1)]
 
 # Turing, Ampere, Ada - closedRM if mixed
-vdpau_group_c = [chr(x).upper() for x in range(ord("j"), ord("k") + 1)]
+vdpau_group_c = [chr(x) for x in range(ord("j"), ord("k") + 1)]
 
 proprietary_required = "proprietary_required"
 proprietary_supported = "proprietary_supported"
@@ -356,7 +356,7 @@ def get_driver_from_vdpau_feat(devices):
                     % (dev.id, dev.name, dev.vdpau_feat)
                 )
         else:
-            if dev.legacy_branch and dev.legacy_branch.split(".")[0] <= 470:
+            if dev.legacy_branch and int(dev.legacy_branch.split(".")[0]) <= 470:
                 hint = proprietary_required
                 logging.debug(
                     "get_driver_from_vdpau_feat(): proprietary_required by device %s:\n %s belongs to legacybranch = %s"
