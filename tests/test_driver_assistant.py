@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import logging
 
 from gi.repository import UMockdev
 
@@ -517,8 +518,10 @@ def generate_os_release(release):
     return release_file
 
 
-def get_json_file():
-    return os.path.join(root_dir, "supported-gpus", "supported-gpus.json")
+def get_json_file(filename=None):
+    return os.path.join(
+        root_dir, "supported-gpus", filename if filename else "supported-gpus.json"
+    )
 
 
 class DetectTest(unittest.TestCase):
@@ -529,13 +532,13 @@ class DetectTest(unittest.TestCase):
 
         self.umockdev = generate_fake_hardware()
 
-    def run_driver_assistant(self, distro_id):
+    def run_driver_assistant(self, distro_id, json_file=None):
         """Run driver-assistant and return (stdout, stderr)"""
         os_release = generate_os_release(distro_id)
         command = [
             "%s/driver-assistant" % root_dir,
             "--supported-gpus",
-            get_json_file(),
+            get_json_file(json_file),
             "--sys-path",
             self.umockdev.get_sys_dir(),
             "--os-release-path",
@@ -685,6 +688,30 @@ class DetectTest(unittest.TestCase):
         stdout, stderr = self.run_driver_assistant("fedora")
 
         self.assertEqual(len(stderr), 0)
+
+    def test_recommend_driver(self):
+        json_file = get_json_file()
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        driver = DriverAssistant.detect.recommend_driver(
+            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
+        )
+        self.assertTrue(driver)
+        self.assertTrue(driver == "open")
+
+        self.umockdev.add_device(
+            "pci", "legacy_gpu_modalias_1", None, ["modalias", legacy_gpu_modalias_1], []
+        )
+        self.umockdev.add_device(
+            "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
+        )
+
+        driver = DriverAssistant.detect.recommend_driver(
+            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
+        )
+        self.assertTrue(driver)
+        self.assertTrue(driver == "closed")
 
 
 if __name__ == "__main__":

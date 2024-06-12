@@ -60,7 +60,6 @@ proprietary_supported = "gsp_proprietary_supported"
 default = "open_required"
 open_supported = "kernelopen"
 support_flags = (open_supported, proprietary_supported)
-driver_hints_available = False
 
 
 class SystemInfo(object):
@@ -432,7 +431,7 @@ def get_driver_from_json_hints(devices):
         return None
 
 
-def recommend_driver(sys_path=None, supported_gpus=None):
+def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False):
     """Recommend a driver using the available logic"""
     devices = get_nvidia_devices(sys_path, supported_gpus)
     print_pretty_gpu_summary(devices)
@@ -441,7 +440,7 @@ def recommend_driver(sys_path=None, supported_gpus=None):
 
     logging.debug("recommend_driver(): Do device IDs support the open driver?")
 
-    if driver_hints_available:
+    if use_driver_hints:
         logging.debug("recommend_driver(): using json logic")
         return get_driver_from_json_hints(devices)
     else:
