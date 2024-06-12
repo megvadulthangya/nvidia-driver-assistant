@@ -28,6 +28,7 @@ import os
 import sys
 import argparse
 import resource
+import logging
 
 
 def main():
@@ -38,14 +39,24 @@ def main():
         type=str,
         help="Run only the specified test suite",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="[OPTIONAL] Verbose output from driver-assistant",
+        default=False,
+    )
 
     args = parser.parse_args()
     suite = args.suite
+    verbose = args.verbose
 
     # Set a high limit of open fds
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     if soft < 8180:
         resource.setrlimit(resource.RLIMIT_NOFILE, (8180, hard))
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     if args.suite:
         # Run only the selected tests
