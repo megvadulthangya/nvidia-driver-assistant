@@ -690,6 +690,7 @@ class DetectTest(unittest.TestCase):
         self.assertEqual(len(stderr), 0)
 
     def test_recommend_driver(self):
+        """Test recommended_driver() using vdpau support hints"""
         json_file = get_json_file()
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
@@ -709,6 +710,31 @@ class DetectTest(unittest.TestCase):
 
         driver = DriverAssistant.detect.recommend_driver(
             sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
+        )
+        self.assertTrue(driver)
+        self.assertTrue(driver == "closed")
+
+    def test_recommend_driver_mod(self):
+        """Test recommended_driver() using json driver support hints"""
+        json_file = get_json_file("supported-gpus-mod.json")
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        driver = DriverAssistant.detect.recommend_driver(
+            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file, use_driver_hints=True
+        )
+        self.assertTrue(driver)
+        self.assertTrue(driver == "open")
+
+        self.umockdev.add_device(
+            "pci", "legacy_gpu_modalias_1", None, ["modalias", legacy_gpu_modalias_1], []
+        )
+        self.umockdev.add_device(
+            "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
+        )
+
+        driver = DriverAssistant.detect.recommend_driver(
+            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file, use_driver_hints=True
         )
         self.assertTrue(driver)
         self.assertTrue(driver == "closed")
