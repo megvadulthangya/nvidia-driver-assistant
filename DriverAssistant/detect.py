@@ -56,9 +56,10 @@ vdpau_group_b = [chr(x) for x in range(ord("d"), ord("i") + 1)]
 vdpau_group_c = [chr(x) for x in range(ord("j"), ord("k") + 1)]
 
 proprietary_required = "proprietary_required"
-proprietary_supported = "proprietary_supported"
+proprietary_supported = "gsp_proprietary_supported"
 default = "open_required"
-proprietary_prefs = (proprietary_required, proprietary_supported)
+open_supported = "kernelopen"
+support_flags = (open_supported, proprietary_supported)
 driver_hints_available = False
 
 
@@ -95,14 +96,29 @@ class Device(object):
         self._parse_features(features)
 
     def _parse_features(self, features):
-        global driver_hints_available
+        flags = []
         for feat in features:
             feat = feat.lower()
             if feat.find("vdpaufeatureset") != -1:
                 self.vdpau_feat = feat.replace("vdpaufeatureset", "")[0]
-            elif feat in proprietary_prefs:
-                self.driver_hint = feat
-                driver_hints_available = True
+            elif feat in support_flags:
+                flags.append(feat)
+
+        if not flags:
+            self.driver_hint = proprietary_required
+        elif proprietary_supported in flags:
+            self.driver_hint = proprietary_supported
+        else:
+            if open_supported in flags:
+                self.driver_hint = default
+            else:
+                # This should not happen
+                # Broken flags in the json file?
+                self.driver_hint = ""
+                logging.warning(
+                    "device %s support level not flagged as %s" % (self.id, open_supported)
+                )
+
         # Legacy drivers <= 470
         if not self.driver_hint:
             if self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
