@@ -7,7 +7,7 @@ import glob
 extra_data = []
 
 setup(
-    name="driver-assistant",
+    name="nvidia-driver-assistant",
     author="Alberto Milone",
     author_email="amilone@nvidia.com",
     maintainer="Alberto Milone",
@@ -15,11 +15,11 @@ setup(
     url="https://temporaryaddress.com",
     license="mit",
     description="Detect the NVIDIA GPUs and recommend a driver",
-    packages=["DriverAssistant"],
+    packages=["NvidiaDriverAssistant"],
     data_files=[
-        ("/usr/share/driver-assistant/supported-gpus/", glob.glob("supported-gpus/*")),
-        ("/usr/share/driver-assistant/driver_eula/", ["driver_eula/LICENSE"]),
+        ("/usr/share/nvidia-driver-assistant/supported-gpus/", glob.glob("supported-gpus/*")),
+        ("/usr/share/nvidia-driver-assistant/driver_eula/", ["driver_eula/LICENSE"]),
     ]
     + extra_data,
-    scripts=["driver-assistant"],
+    scripts=["nvidia-driver-assistant"],
 )

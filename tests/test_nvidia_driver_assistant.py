@@ -33,7 +33,7 @@ import logging
 
 from gi.repository import UMockdev
 
-import DriverAssistant.detect
+import NvidiaDriverAssistant.detect
 
 test_dir = os.path.abspath(os.path.dirname(__file__))
 root_dir = os.path.dirname(test_dir)
@@ -533,10 +533,10 @@ class DetectTest(unittest.TestCase):
         self.umockdev = generate_fake_hardware()
 
     def run_driver_assistant(self, distro_id, json_file=None):
-        """Run driver-assistant and return (stdout, stderr)"""
+        """Run nvidia-driver-assistant and return (stdout, stderr)"""
         os_release = generate_os_release(distro_id)
         command = [
-            "%s/driver-assistant" % root_dir,
+            "%s/nvidia-driver-assistant" % root_dir,
             "--supported-gpus",
             get_json_file(json_file),
             "--sys-path",
@@ -563,7 +563,7 @@ class DetectTest(unittest.TestCase):
             with open(release_file.name, "w") as stream:
                 stream.write(content)
 
-            system_info = DriverAssistant.detect.get_distro(release_file.name)
+            system_info = NvidiaDriverAssistant.detect.get_distro(release_file.name)
 
             self.assertTrue(system_info)
             self.assertTrue(distro in [system_info.id, system_info.original_id])
@@ -575,7 +575,7 @@ class DetectTest(unittest.TestCase):
     def test_distro_override(self):
         original_id = "fedora"
         fake_id = "ubuntu"
-        system_info = DriverAssistant.detect.override_distro(fake_id)
+        system_info = NvidiaDriverAssistant.detect.override_distro(fake_id)
 
         self.assertTrue(system_info)
         self.assertTrue(fake_id in [system_info.id, system_info.original_id])
@@ -583,7 +583,7 @@ class DetectTest(unittest.TestCase):
 
         # Let's try overriding the version too
         fake_id = "ubuntu:24.04"
-        system_info = DriverAssistant.detect.override_distro(fake_id)
+        system_info = NvidiaDriverAssistant.detect.override_distro(fake_id)
 
         self.assertTrue(system_info)
         self.assertTrue(fake_id.split(":")[0] in [system_info.id, system_info.original_id])
@@ -601,7 +601,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        modaliases = DriverAssistant.detect.get_system_modaliases(self.umockdev.get_sys_dir())
+        modaliases = NvidiaDriverAssistant.detect.get_system_modaliases(self.umockdev.get_sys_dir())
 
         self.assertEqual(
             set(modaliases),
@@ -673,7 +673,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        devices = DriverAssistant.detect.get_nvidia_devices(self.umockdev.get_sys_dir(), json_file)
+        devices = NvidiaDriverAssistant.detect.get_nvidia_devices(self.umockdev.get_sys_dir(), json_file)
 
         # Not invalid
         self.assertFalse(not devices)
@@ -695,7 +695,7 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = DriverAssistant.detect.recommend_driver(
+        driver = NvidiaDriverAssistant.detect.recommend_driver(
             sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
         )
         self.assertTrue(driver)
@@ -708,7 +708,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        driver = DriverAssistant.detect.recommend_driver(
+        driver = NvidiaDriverAssistant.detect.recommend_driver(
             sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
         )
         self.assertTrue(driver)
@@ -720,7 +720,7 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = DriverAssistant.detect.recommend_driver(
+        driver = NvidiaDriverAssistant.detect.recommend_driver(
             sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file, use_driver_hints=True
         )
         self.assertTrue(driver)
@@ -733,7 +733,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        driver = DriverAssistant.detect.recommend_driver(
+        driver = NvidiaDriverAssistant.detect.recommend_driver(
             sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file, use_driver_hints=True
         )
         self.assertTrue(driver)

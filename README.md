@@ -1,4 +1,4 @@
-# driver-assistant
+# nvidia-driver-assistant
 
 This piece of software is meant to help users deciding on which NVIDIA graphics
 driver to install, based on the detected system's hardware.
@@ -10,7 +10,7 @@ packages suitable for the hardware, and print the instructions relevant to
 the current Linux distribution (see the list of supported Linux
 distributions in the next section).
 
-Optionally, `driver-assistant --install`, can also install the driver
+Optionally, `nvidia-driver-assistant --install`, can also install the driver
 automatically.
 
 Additional supported arguments:
@@ -22,7 +22,7 @@ Additional supported arguments:
 - `--module-flavor [MODULE_FLAVOR]` - Specify a kernel module flavor. Useful for testing
 - `--verbose` - Verbose output
 
-Please see `driver-assistant --help` for further details.
+Please see `nvidia-driver-assistant --help` for further details.
 
 ## Supported Linux distributions
 
@@ -40,14 +40,14 @@ The following Linux distributions are currently supported:
 
 ## Test suite
 
-To use the test suite driver-assistant comes with, you are going to need the following dependencies:
+To use the test suite nvidia-driver-assistant comes with, you are going to need the following dependencies:
 
 ```python3-gi and umockdev gir1.2-umockdev-1.0```
 
 The test suite can be run as follows:
 
 ```shell
-$ PYTHONPATH=. tests/run test_driver_assistant.py
+$ PYTHONPATH=. tests/run --suite test_nvidia_driver_assistant.py
 ```
 
 Note: no actual NVIDIA hardware is required for testing, since umockdev is used to simulate the
