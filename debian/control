@@ -17,7 +17,7 @@ Vcs-Browser: https://github.com/NVIDIA/nvidia-driver-assistant
 X-Python3-Version: >= 3.2
 
 Package: nvidia-driver-assistant
-Architecture: any
+Architecture: all
 Pre-Depends: dpkg (>= 1.15.7.2)
 Depends: ${python3:Depends},
  ${misc:Depends},
