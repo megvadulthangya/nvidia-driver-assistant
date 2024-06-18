@@ -5,7 +5,7 @@ driver to install, based on the detected system's hardware.
 
 ## Command line interface
 
-By default, the `drivers-assistant` command line tool will show the driver
+By default, the `nvidia-drivers-assistant` command line tool will show the driver
 packages suitable for the hardware, and print the instructions relevant to
 the current Linux distribution (see the list of supported Linux
 distributions in the next section).
@@ -15,10 +15,10 @@ automatically.
 
 Additional supported arguments:
 - `--branch [BRANCH]` - Specify the desired NVIDIA driver branch
-- `--supported-gpus [SUPPORTED_GPUS]` - Use a different version of the supported-gpus.json file
+- `--supported-gpus [SUPPORTED_GPUS]` - Use a different version of the `supported-gpus.json` file
 - `--sys-path [SYS_PATH]` - Use a different /sys path. Useful for testing
 - `--os-release-path [OS_RELEASE_PATH]` - Use a different path for the os-release file. Useful for testing
-- `--distro [DISTRO]` - Specify a Linux distro using the "DISTRO:VERSION" or "DISTRO" pattern. Useful for testing
+- `--distro [DISTRO]` - Specify a Linux distro using the `"DISTRO:VERSION"` or `"DISTRO"` pattern. Useful for testing
 - `--module-flavor [MODULE_FLAVOR]` - Specify a kernel module flavor. Useful for testing
 - `--verbose` - Verbose output
 
@@ -40,7 +40,7 @@ The following Linux distributions are currently supported:
 
 ## Test suite
 
-To use the test suite nvidia-driver-assistant comes with, you are going to need the following dependencies:
+To use the test suite `nvidia-driver-assistant` comes with, you are going to need the following dependencies:
 
 ```python3-gi and umockdev gir1.2-umockdev-1.0```
 
