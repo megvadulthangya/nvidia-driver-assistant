@@ -34,8 +34,6 @@ import argparse
 import string
 import sys
 
-import NvidiaDriverAssistant.detect
-
 
 default_directory = os.path.dirname(os.path.realpath(__file__))
 default_json_path = os.path.join(default_directory, "supported-gpus", "supported-gpus.json")

@@ -34,8 +34,6 @@ import logging
 
 from gi.repository import UMockdev
 
-import NvidiaDriverAssistant.detect
-
 test_dir = os.path.abspath(os.path.dirname(__file__))
 root_dir = os.path.dirname(test_dir)
 
