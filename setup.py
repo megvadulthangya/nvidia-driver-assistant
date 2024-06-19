@@ -15,7 +15,7 @@ setup(
     url="https://temporaryaddress.com",
     license="mit",
     description="Detect the NVIDIA GPUs and recommend a driver",
-    packages=["NvidiaDriverAssistant"],
+    packages=[],
     data_files=[
         ("/usr/share/nvidia-driver-assistant/supported-gpus/", glob.glob("supported-gpus/*")),
         ("/usr/share/nvidia-driver-assistant/driver_eula/", ["driver_eula/LICENSE"]),
