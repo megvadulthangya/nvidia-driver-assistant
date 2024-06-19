@@ -23,6 +23,7 @@
 #
 # Author: Alberto Milone <amilone@nvidia.com>
 
+import importlib
 import json
 import os
 import subprocess
@@ -32,8 +33,6 @@ import unittest
 import logging
 
 from gi.repository import UMockdev
-
-import NvidiaDriverAssistant.detect
 
 test_dir = os.path.abspath(os.path.dirname(__file__))
 root_dir = os.path.dirname(test_dir)
@@ -239,6 +238,17 @@ os_release_files = {
     "debian": debian_os_release,
     "ubuntu": ubuntu_os_release,
 }
+
+
+def import_function(function, *args):
+    """Hack to import functions from the main script"""
+    filename = "nvidia-driver-assistant.py"
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
+    spec = importlib.util.spec_from_file_location(function, script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return getattr(module, function)(*args)
 
 
 def generate_fake_hardware():
@@ -563,7 +573,7 @@ class DetectTest(unittest.TestCase):
             with open(release_file.name, "w") as stream:
                 stream.write(content)
 
-            system_info = NvidiaDriverAssistant.detect.get_distro(release_file.name)
+            system_info = import_function("get_distro", (release_file.name))
 
             self.assertTrue(system_info)
             self.assertTrue(distro in [system_info.id, system_info.original_id])
@@ -575,7 +585,7 @@ class DetectTest(unittest.TestCase):
     def test_distro_override(self):
         original_id = "fedora"
         fake_id = "ubuntu"
-        system_info = NvidiaDriverAssistant.detect.override_distro(fake_id)
+        system_info = import_function("override_distro", (fake_id))
 
         self.assertTrue(system_info)
         self.assertTrue(fake_id in [system_info.id, system_info.original_id])
@@ -583,7 +593,7 @@ class DetectTest(unittest.TestCase):
 
         # Let's try overriding the version too
         fake_id = "ubuntu:24.04"
-        system_info = NvidiaDriverAssistant.detect.override_distro(fake_id)
+        system_info = import_function("override_distro", (fake_id))
 
         self.assertTrue(system_info)
         self.assertTrue(fake_id.split(":")[0] in [system_info.id, system_info.original_id])
@@ -601,7 +611,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        modaliases = NvidiaDriverAssistant.detect.get_system_modaliases(self.umockdev.get_sys_dir())
+        modaliases = import_function("get_system_modaliases", (self.umockdev.get_sys_dir()))
 
         self.assertEqual(
             set(modaliases),
@@ -673,7 +683,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        devices = NvidiaDriverAssistant.detect.get_nvidia_devices(self.umockdev.get_sys_dir(), json_file)
+        devices = import_function("get_nvidia_devices", *[self.umockdev.get_sys_dir(), json_file])
 
         # Not invalid
         self.assertFalse(not devices)
@@ -695,9 +705,7 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = NvidiaDriverAssistant.detect.recommend_driver(
-            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
-        )
+        driver = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
         self.assertTrue(driver)
         self.assertTrue(driver == "open")
 
@@ -708,9 +716,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        driver = NvidiaDriverAssistant.detect.recommend_driver(
-            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file
-        )
+        driver = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
         self.assertTrue(driver)
         self.assertTrue(driver == "closed")
 
@@ -720,8 +726,8 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = NvidiaDriverAssistant.detect.recommend_driver(
-            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file, use_driver_hints=True
+        driver = import_function(
+            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
         )
         self.assertTrue(driver)
         self.assertTrue(driver == "open")
@@ -733,8 +739,8 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        driver = NvidiaDriverAssistant.detect.recommend_driver(
-            sys_path=self.umockdev.get_sys_dir(), supported_gpus=json_file, use_driver_hints=True
+        driver = import_function(
+            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
         )
         self.assertTrue(driver)
         self.assertTrue(driver == "closed")

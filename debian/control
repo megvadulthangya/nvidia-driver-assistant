@@ -1,0 +1,28 @@
+Source: nvidia-driver-assistant
+Section: admin
+Priority: optional
+Maintainer: Alberto Milone <amilone@nvidia.com>
+Build-Depends: debhelper (>= 9.20160709),
+ dh-python,
+ python3-all (>= 3.2),
+ python3-setuptools,
+ python3-aptdaemon.test (>= 0.43+bzr810-0ubuntu2~),
+ python3-gi,
+ gir1.2-glib-2.0,
+ gir1.2-umockdev-1.0,
+ umockdev
+Standards-Version: 3.9.8
+Vcs-Git: git://github.com/NVIDIA/nvidia-driver-assistant
+Vcs-Browser: https://github.com/NVIDIA/nvidia-driver-assistant
+X-Python3-Version: >= 3.2
+
+Package: nvidia-driver-assistant
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.7.2)
+Depends: ${python3:Depends},
+ ${misc:Depends},
+ ${shlibs:Depends},
+ python3-apt
+Description: Detect and install the best NVIDIA driver packages for the system
+ This piece of software is meant to help users deciding on which NVIDIA graphics
+ driver to install, based on the detected system's hardware.

@@ -29,6 +29,7 @@ import sys
 import argparse
 import resource
 import logging
+import shutil
 
 
 def main():
@@ -70,6 +71,10 @@ def main():
                 if t.endswith(".py") and t not in ["__init__.py"]
             ]
         )
+    # Copy file so that we can import it for the test suite
+    filename = "nvidia-driver-assistant"
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
+    shutil.copyfile(script_path, "%s.py" % script_path)
     result = unittest.TextTestRunner(verbosity=2).run(test_suite)
 
     return len(result.errors) > 0 or len(result.failures) > 0

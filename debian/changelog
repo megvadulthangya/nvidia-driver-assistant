@@ -1,0 +1,5 @@
+nvidia-driver-assistant (0.1) noble; urgency=medium
+
+  * Initial release.
+
+ -- Alberto Milone <amilone@nvidia.com>  Wed, 05 Jun 2024 17:58:12 +0200
