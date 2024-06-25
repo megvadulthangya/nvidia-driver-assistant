@@ -158,7 +158,7 @@ class Device(object):
             elif feat in support_flags:
                 flags.append(feat)
 
-        if not flags:
+        if not flags or not open_supported in flags:
             self.driver_hint = proprietary_required
         elif proprietary_supported in flags:
             self.driver_hint = proprietary_supported
