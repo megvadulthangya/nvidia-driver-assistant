@@ -612,6 +612,22 @@ class DetectTest(unittest.TestCase):
         self.assertTrue(fake_id.split(":")[0] in [system_info.id, system_info.original_id])
         self.assertTrue(system_info.version_id)
 
+        # Test case sensitive fake id
+        fake_id = "Mariner"
+        system_info = import_function("override_distro", (fake_id))
+
+        self.assertTrue(system_info)
+        self.assertTrue(fake_id in [system_info.id, system_info.original_id])
+        self.assertFalse(system_info.version_id)
+
+        # Case sensitive plus version
+        fake_id = "Ubuntu:24.04"
+        system_info = import_function("override_distro", (fake_id))
+
+        self.assertTrue(system_info)
+        self.assertTrue(fake_id.split(":")[0] in [system_info.id, system_info.original_id])
+        self.assertTrue(system_info.version_id)
+
     def test_get_system_modaliases(self):
         """Test get_system_modaliases() using our fake hardware"""
 

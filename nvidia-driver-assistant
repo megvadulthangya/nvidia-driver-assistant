@@ -671,7 +671,7 @@ def main():
         driver = "closed"
 
     if distro_override:
-        system_info = override_distro(distro_override)
+        system_info = override_distro(distro_override.lower())
         print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id))
     else:
         system_info = get_distro(os_release_path)
