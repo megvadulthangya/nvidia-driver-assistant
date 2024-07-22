@@ -542,9 +542,10 @@ class DetectTest(unittest.TestCase):
 
         self.umockdev = generate_fake_hardware()
 
-    def run_driver_assistant(self, distro_id, json_file=None):
+    def run_driver_assistant(self, distro_id, json_file=None, additional_args=[]):
         """Run nvidia-driver-assistant and return (stdout, stderr)"""
         os_release = generate_os_release(distro_id)
+
         command = [
             "%s/nvidia-driver-assistant" % root_dir,
             "--supported-gpus",
@@ -554,6 +555,9 @@ class DetectTest(unittest.TestCase):
             "--os-release-path",
             os_release.name,
         ]
+
+        if additional_args:
+            command.extend(additional_args)
 
         assistant = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -697,6 +701,29 @@ class DetectTest(unittest.TestCase):
 
         stdout, stderr = self.run_driver_assistant("fedora")
 
+        self.assertEqual(len(stderr), 0)
+
+    def test_driver_assistant_branch(self):
+        """Test driver assistant --branch argument"""
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        # This should fail
+        stdout, stderr = self.run_driver_assistant("fedora", additional_args=["--branch", "530"])
+
+        self.assertTrue(len(stderr) > 0)
+
+        # This should also fail
+        stdout, stderr = self.run_driver_assistant("fedora", additional_args=["--branch", "r560"])
+
+        self.assertTrue(len(stderr) > 0)
+
+        # This should pass
+        stdout, stderr = self.run_driver_assistant("fedora", additional_args=["--branch", "560"])
+        self.assertEqual(len(stderr), 0)
+
+        # This should also pass
+        stdout, stderr = self.run_driver_assistant("fedora", additional_args=["--branch", "575"])
         self.assertEqual(len(stderr), 0)
 
     def test_recommend_driver(self):
