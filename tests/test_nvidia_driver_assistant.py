@@ -583,6 +583,15 @@ class DetectTest(unittest.TestCase):
             self.assertTrue(distro in [system_info.id, system_info.original_id])
             self.assertTrue(system_info.version_id)
 
+        # Let's try with an empty file
+        content = ""
+        with open(release_file.name, "w") as stream:
+            stream.write(content)
+
+        system_info = import_function("get_distro", (release_file.name))
+
+        self.assertFalse(system_info)
+
         os.unlink(release_file.name)
         del release_file
 
