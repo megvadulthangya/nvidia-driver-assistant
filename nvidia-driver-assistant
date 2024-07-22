@@ -638,6 +638,18 @@ def main():
         elif os.path.isfile(default_json_path):
             supported_gpus = default_json_path
 
+    # Sanity check for the branch argument
+    if branch_locked:
+        try:
+            int_branch = int(branch_locked)
+        except ValueError:
+            print("Error: %s is not an integer value" % (branch_locked), file=sys.stderr)
+            exit(1)
+        else:
+            if int_branch < 560:
+                print("Error: only releases >= 560 are allowed", file=sys.stderr)
+                exit(1)
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
