@@ -204,8 +204,14 @@ def get_distro(path=None):
                         .replace(name_pattern_a, "")
                         .replace('"', "")
                     )
-        system_info = SystemInfo(distro_id, version_id, name)
-
+        if distro_id and version_id and name:
+            system_info = SystemInfo(distro_id, version_id, name)
+        else:
+            logging.error(
+                "failed to detect Linux distribution: cannot extract valid values from %s"
+                % (release_file)
+            )
+            return system_info
     except (IOError, FileNotFoundError, PermissionError) as e:
         logging.error(
             "failed to detect Linux distribution: cannot read %s: %s" % (release_file, e)
