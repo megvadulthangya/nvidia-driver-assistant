@@ -635,7 +635,7 @@ def main():
         "--module-flavor",
         nargs="?",
         type=str,
-        help="Specify a kernel module flavor. Useful for testing",
+        help='Specify a kernel module flavor; "open" and "closed" are accepted values. Useful for testing',
     )
     parser.add_argument(
         "--verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
@@ -685,10 +685,14 @@ def main():
         exit(1)
     logging.debug("Recommended driver: %s" % driver)
 
-    if module_override == "open":
-        driver = "open"
-    elif module_override == "closed":
-        driver = "closed"
+    if module_override:
+        driver = module_override.lower()
+        if not driver in ("open", "closed"):
+            print(
+                'Error: invalid module flavor. Accepted values are "open" and "closed".',
+                file=sys.stderr,
+            )
+            exit(1)
 
     if distro_override:
         system_info = override_distro(distro_override.lower())

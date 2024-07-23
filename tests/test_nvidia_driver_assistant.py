@@ -751,6 +751,49 @@ class DetectTest(unittest.TestCase):
         stdout, stderr = self.run_driver_assistant("fedora", additional_args=["--branch", "575"])
         self.assertEqual(len(stderr), 0)
 
+    def test_driver_assistant_module_flavor(self):
+        """Test driver assistant --module-flavor argument"""
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        # This should fail
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--module-flavor", "Fopen"]
+        )
+
+        self.assertTrue(len(stderr) > 0)
+
+        # This should also fail
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--module-flavor", "closedo"]
+        )
+
+        self.assertTrue(len(stderr) > 0)
+
+        # This should pass
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--module-flavor", "open"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+        # Test case sensitivity
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--module-flavor", "oPEn"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+        # This should also pass
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--module-flavor", "closed"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+        # Test case sensitivity
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--module-flavor", "CloSed"]
+        )
+        self.assertEqual(len(stderr), 0)
+
     def test_recommend_driver(self):
         """Test recommended_driver() using vdpau support hints"""
         json_file = get_json_file()
