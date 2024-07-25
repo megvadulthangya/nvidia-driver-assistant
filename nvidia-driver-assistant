@@ -679,7 +679,9 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    driver = recommend_driver(sys_path=sys_path, supported_gpus=supported_gpus)
+    driver = recommend_driver(
+        sys_path=sys_path, supported_gpus=supported_gpus, use_driver_hints=True
+    )
     if not driver:
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
