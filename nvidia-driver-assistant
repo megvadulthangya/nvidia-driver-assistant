@@ -131,9 +131,12 @@ class SystemInfo(object):
     def update_info(self):
         if self.id in ["opensuse-leap", "opensuse-tumbleweed"]:
             self.id = "opensuse"
-            logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
         elif self.id in ["cm", "mariner"]:
             self.id = "azurelinux"
+        elif self.id in ["rocky"]:
+            self.id = "rhel"
+
+        if self.id != self.original_id:
             logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
 
 
