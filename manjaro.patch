@@ -1,0 +1,68 @@
+--- nvidia-driver-assistant/usr/bin/nvidia-driver-assistant	2024-11-23 17:07:05.000000000 +0700
++++ nvidia-driver-assistant/usr/bin/nvidia-driver-assistant	2024-11-23 17:09:46.753340700 +0700
+@@ -33,6 +33,7 @@ import json
+ import argparse
+ import string
+ import sys
++import platform
+ 
+ 
+ default_directory = os.path.dirname(os.path.realpath(__file__))
+@@ -70,6 +71,8 @@ supported_distros = [
+     "rocky",
+     "opensuse",
+     "sles",
++    "manjaro",
++    "arch",
+ ]
+ 
+ instructions = {
+@@ -91,6 +94,10 @@ instructions = {
+     "rhel-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+     "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
+     "ubuntu-open": ["sudo apt-get install -y nvidia-open"],
++    "arch-closed": ["sudo pacman -S nvidia-dkms"],
++    "arch-open": ["sudo pacman -S nvidia-open-dkms"],
++    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia"],
++    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-open"],
+ }
+ 
+ branch_instructions = {
+@@ -112,6 +119,10 @@ branch_instructions = {
+     "rhel-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+     "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
+     "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
++    "arch-closed": ["Not supported"],
++    "arch-open": ["Not supported"],
++    "manjaro-closed": ["Not supported"],
++    "manjaro-open": ["Not supported"],
+ }
+ 
+ ### ADD CLEANUP INSTRUCTIONS? https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#switching-between-driver-module-flavors
+@@ -179,6 +190,11 @@ class Device(object):
+                 self.driver_hint = proprietary_required
+ 
+ 
++def manjaro_get_kernel_package():
++    kernel_release = platform.release().split(".")
++    return f"linux{kernel_release[0]}{kernel_release[1]}"
++
++
+ def get_distro(path=None):
+     """Get the linux distribution from /etc/os-release"""
+     release_file = "/etc/os-release" if not path else path
+@@ -542,6 +558,14 @@ def process_results(driver, distro_id, v
+             print("Error: failed to get the latest driver branch", file=sys.stderr)
+             return False
+ 
++    if distro_id == "manjaro":
++        # Check for currently running kernel
++        kernel_id = manjaro_get_kernel_package()
++        it = 0
++        for line in candidates:
++            candidates[it] = line.replace("KERNEL", kernel_id)
++            it += 1
++
+     if branch_id:
+         it = 0
+         for line in candidates:
