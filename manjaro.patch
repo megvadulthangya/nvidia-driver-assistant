@@ -1,5 +1,5 @@
---- nvidia-driver-assistant/usr/bin/nvidia-driver-assistant	2024-11-23 17:07:05.000000000 +0700
-+++ nvidia-driver-assistant/usr/bin/nvidia-driver-assistant	2024-11-23 17:09:46.753340700 +0700
+--- nvidia-driver-assistant/usr/bin/nvidia-driver-assistant	2024-11-26 09:02:18.000000000 +0700
++++ nvidia-driver-assistant/usr/bin/nvidia-driver-assistant	2024-11-26 08:51:25.883340694 +0700
 @@ -33,6 +33,7 @@ import json
  import argparse
  import string
@@ -34,12 +34,21 @@
      "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
 +    "arch-closed": ["Not supported"],
 +    "arch-open": ["Not supported"],
-+    "manjaro-closed": ["Not supported"],
++    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia-BRANCHxx"],
 +    "manjaro-open": ["Not supported"],
  }
  
  ### ADD CLEANUP INSTRUCTIONS? https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#switching-between-driver-module-flavors
-@@ -179,6 +190,11 @@ class Device(object):
+@@ -175,10 +186,32 @@ class Device(object):
+ 
+         # Legacy drivers <= 470
+         if not self.driver_hint:
++            if self.legacy_branch:
++                logging.debug(
++                    "Device: belongs to legacybranch = %s"
++                    % (self.legacy_branch)
++                )
+             if self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
                  self.driver_hint = proprietary_required
  
  
@@ -48,10 +57,81 @@
 +    return f"linux{kernel_release[0]}{kernel_release[1]}"
 +
 +
++def manjaro_get_legacy_branch(devices):
++    for dev in devices.values():
++         if dev.legacy_branch:
++             logging.debug(
++                 "get_legacy_branch(): %s belongs to legacybranch = %s"
++                 % (dev.name, dev.legacy_branch)
++             )
++             return dev.legacy_branch.split('.')[0]
++         else:
++             return None
++
++
  def get_distro(path=None):
      """Get the linux distribution from /etc/os-release"""
      release_file = "/etc/os-release" if not path else path
-@@ -542,6 +558,14 @@ def process_results(driver, distro_id, v
+@@ -337,6 +370,17 @@ def get_nvidia_devices(sys_path, support
+     modaliases = get_system_modaliases(sys_path)
+     json_path = supported_gpus
+ 
++    #alias = "pci:v000010DEd00002783sv000010DEsd000018FEbc03sc00i00" # NVIDIA GeForce RTX 4070 SUPER
++    #alias = "pci:v000010DEd000022BCsv000010DEsd000018FEbc04sc03i00" # not a Nvidia GPU
++    #alias = "pci:v000010DEd00001380sv000010DEsd000018FEbc03sc00i00" # NVIDIA GeForce GTX 750 Ti
++    #alias = "pci:v000010DEd00001241sv000010DEsd000018FEbc03sc00i00" # NVIDIA GeForce GT 545
++    #alias = "pci:v000010DEd0000105Bsv000010DEsd000018FEbc03sc00i00" # Nvidia GeForce 800A (legacy 390.xx)
++    #alias = "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00" # Nvidia GeForce GT 740A (legacy 470.xx)
++    #uncommend the following for testing (390.xx & 470.xx)
++    #modaliases = ( {'pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0', 'pci:v000010DEd0000105Bsv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0'} )
++    #uncommend the following for testing (nvidia-open & 470.xx)
++    #modaliases = ( {'pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0', 'pci:v000010DEd00002783sv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0'} )
++
+     # PCI IDs we should consider
+     candidates = []
+ 
+@@ -377,6 +421,10 @@ def get_nvidia_devices(sys_path, support
+                         device = Device(
+                             dev_id, gpu["name"], gpu["features"], gpu.get("legacybranch")
+                         )
++                        logging.debug(
++                             "gpu.get(legacybranch): %s belongs to legacybranch = %s"
++                             % (gpu["name"], gpu.get("legacybranch"))
++                        )
+                         devices[dev_id] = device
+     except (IOError, FileNotFoundError, PermissionError) as e:
+         logging.error("failed to read read %s: %s" % (json_path, e))
+@@ -406,7 +454,6 @@ def print_pretty_gpu_summary(devices):
+     else:
+         print("No NVIDIA GPUs detected")
+ 
+-
+ def get_driver_from_vdpau_feat(devices):
+     """Use the supported VDPAU feature sets to recommend a driver"""
+     hints = []
+@@ -499,7 +546,7 @@ def get_driver_from_json_hints(devices):
+         return None
+ 
+ 
+-def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False):
++def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False) -> (str, dict):
+     """Recommend a driver using the available logic"""
+     devices = get_nvidia_devices(sys_path, supported_gpus)
+     print_pretty_gpu_summary(devices)
+@@ -510,10 +557,10 @@ def recommend_driver(sys_path=None, supp
+ 
+     if use_driver_hints:
+         logging.debug("recommend_driver(): using json logic")
+-        return get_driver_from_json_hints(devices)
++        return get_driver_from_json_hints(devices), devices
+     else:
+         logging.debug("recommend_driver(): using VDPAU logic")
+-        return get_driver_from_vdpau_feat(devices)
++        return get_driver_from_vdpau_feat(devices), devices
+     return None
+ 
+ 
+@@ -542,6 +589,14 @@ def process_results(driver, distro_id, v
              print("Error: failed to get the latest driver branch", file=sys.stderr)
              return False
  
@@ -66,3 +146,23 @@
      if branch_id:
          it = 0
          for line in candidates:
+@@ -679,7 +734,7 @@ def main():
+     if args.verbose:
+         logging.getLogger().setLevel(logging.DEBUG)
+ 
+-    driver = recommend_driver(
++    driver, devices = recommend_driver(
+         sys_path=sys_path, supported_gpus=supported_gpus, use_driver_hints=True
+     )
+     if not driver:
+@@ -706,6 +761,10 @@ def main():
+         # print("Error: unsupported Linux distribution", file=sys.stderr)
+         exit(1)
+     logging.debug("OS detected: %s" % system_info.id)
++
++    if not branch_locked and system_info.id == "manjaro":
++        branch_locked = manjaro_get_legacy_branch(devices)
++
+     if needs_install:
+         install_driver(driver, system_info.id, system_info.version_id, branch_locked)
+     else:
