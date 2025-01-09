@@ -76,14 +76,14 @@ instructions = {
     "amzn-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
     "debian-closed": ["sudo apt-get install -Vy cuda-drivers"],
     "debian-open": ["sudo apt-get install -Vy nvidia-open"],
-    "fedora-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
-    "fedora-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "fedora-closed": ["sudo dnf -y install cuda-drivers"],
+    "fedora-open": ["sudo dnf -y install nvidia-open"],
     "azurelinux-closed": ["Not supported"],
     "azurelinux-open": ["sudo tdnf -y install nvidia-open"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers"],
-    "opensuse-open": ["sudo zypper install nvidia-open"],
+    "opensuse-open": ["sudo zypper install -y nvidia-open"],
     "sles-closed": ["sudo zypper install -y cuda-drivers"],
     "sles-open": ["sudo zypper install -y nvidia-open"],
     "rhel-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
@@ -97,14 +97,14 @@ branch_instructions = {
     "amzn-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
     "debian-closed": ["sudo apt-get install -Vy cuda-drivers-BRANCH"],
     "debian-open": ["sudo apt-get install -Vy nvidia-open-BRANCH"],
-    "fedora-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
-    "fedora-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+    "fedora-closed": ["sudo dnf -y install cuda-drivers-BRANCH"],
+    "fedora-open": ["sudo dnf -y install nvidia-open-BRANCH"],
     "azurelinux-closed": ["Not supported"],
     "azurelinux-open": ["sudo tdnf -y install nvidia-open-BRANCH"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers-BRANCH"],
-    "opensuse-open": ["sudo zypper install nvidia-open-BRANCH"],
+    "opensuse-open": ["sudo zypper install -y nvidia-open-BRANCH"],
     "sles-closed": ["sudo zypper install -y cuda-drivers-BRANCH"],
     "sles-open": ["sudo zypper install -y nvidia-open-BRANCH"],
     "rhel-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
@@ -130,9 +130,12 @@ class SystemInfo(object):
     def update_info(self):
         if self.id in ["opensuse-leap", "opensuse-tumbleweed"]:
             self.id = "opensuse"
-            logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
         elif self.id in ["cm", "mariner"]:
             self.id = "azurelinux"
+        elif self.id in ["rocky"]:
+            self.id = "rhel"
+
+        if self.id != self.original_id:
             logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
 
 
