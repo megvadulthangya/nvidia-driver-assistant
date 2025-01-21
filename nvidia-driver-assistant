@@ -88,8 +88,6 @@ instructions = {
     "azurelinux-open": ["sudo tdnf -y install nvidia-open"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-    "ol-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
-    "ol-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers"],
     "opensuse-open": ["sudo zypper install -y nvidia-open"],
     "sles-closed": ["sudo zypper install -y cuda-drivers"],
@@ -121,8 +119,6 @@ branch_instructions = {
     "azurelinux-open": ["sudo tdnf -y install nvidia-open-BRANCH"],
     "kylin-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
     "kylin-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
-    "ol-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
-    "ol-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers-BRANCH"],
     "opensuse-open": ["sudo zypper install -y nvidia-open-BRANCH"],
     "sles-closed": ["sudo zypper install -y cuda-drivers-BRANCH"],
@@ -158,7 +154,7 @@ class SystemInfo(object):
             self.id = "opensuse"
         elif self.id in ["cm", "mariner"]:
             self.id = "azurelinux"
-        elif self.id in ["rocky"]:
+        elif self.id in ["rocky", "ol"]:
             self.id = "rhel"
 
         if self.id != self.original_id:

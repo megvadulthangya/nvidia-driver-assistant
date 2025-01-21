@@ -273,6 +273,17 @@ def import_function(function, *args):
     return getattr(module, function)(*args)
 
 
+def import_class(klass, *args):
+    """Hack to import classes from the main script"""
+    filename = "nvidia-driver-assistant.py"
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
+    spec = importlib.util.spec_from_file_location(klass, script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return getattr(module, klass)(*args)
+
+
 def generate_fake_hardware():
     """Generate and return a UMockdev.Testbed object"""
 
@@ -887,6 +898,14 @@ class DetectTest(unittest.TestCase):
 
         # Now try with a generic release
         results = import_function("process_results", *[driver, "debian", "12.0", "570", None])
+        self.assertTrue(results)
+
+        # Test Oracle (same as rhel)
+        # Use the "ol" alias to retrieve the "rhel" id
+        oracle_ver = "10.0"
+        oracle_pretty = "Oracle Linux Server %s" % oracle_ver
+        system_info = import_class("SystemInfo", *["ol", oracle_ver, oracle_pretty])
+        results = import_function("process_results", *[driver, system_info.id, "10.0", None, None])
         self.assertTrue(results)
 
 
