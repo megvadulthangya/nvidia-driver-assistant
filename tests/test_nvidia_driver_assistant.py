@@ -123,7 +123,7 @@ BUG_REPORT_URL="https://aka.ms/cbl-mariner"
 SUPPORT_URL="https://aka.ms/cbl-mariner"'''
 
 
-oracle_os_release = '''
+oracle_os_release = """
 NAME="Oracle Linux Server"
 VERSION="9.5"
 ID="ol"
@@ -142,7 +142,7 @@ ORACLE_BUGZILLA_PRODUCT="Oracle Linux 9"
 ORACLE_BUGZILLA_PRODUCT_VERSION=9.5
 ORACLE_SUPPORT_PRODUCT="Oracle Linux"
 ORACLE_SUPPORT_PRODUCT_VERSION=9.5
-'''
+"""
 
 sles_os_release = '''NAME="SLES"
 VERSION="15"
@@ -271,6 +271,17 @@ def import_function(function, *args):
     spec.loader.exec_module(module)
 
     return getattr(module, function)(*args)
+
+
+def import_class(klass, *args):
+    """Hack to import classes from the main script"""
+    filename = "nvidia-driver-assistant.py"
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
+    spec = importlib.util.spec_from_file_location(klass, script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return getattr(module, klass)(*args)
 
 
 def generate_fake_hardware():
@@ -861,6 +872,41 @@ class DetectTest(unittest.TestCase):
         )
         self.assertTrue(driver)
         self.assertTrue(driver == "closed")
+
+    def test_process_results(self):
+        """Test instruction printing for distro release specific ranges"""
+        json_file = get_json_file("supported-gpus-mod.json")
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        driver = import_function(
+            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
+        )
+        self.assertTrue(driver)
+        self.assertTrue(driver == "open")
+
+        results = import_function("process_results", *[driver, "rhel", "10.0", None, None])
+        self.assertTrue(results)
+
+        # Now try with a generic release
+        results = import_function("process_results", *[driver, "debian", "12.0", None, None])
+        self.assertTrue(results)
+
+        # Do the same by branch
+        results = import_function("process_results", *[driver, "rhel", "10.0", "570", None])
+        self.assertTrue(results)
+
+        # Now try with a generic release
+        results = import_function("process_results", *[driver, "debian", "12.0", "570", None])
+        self.assertTrue(results)
+
+        # Test Oracle (same as rhel)
+        # Use the "ol" alias to retrieve the "rhel" id
+        oracle_ver = "10.0"
+        oracle_pretty = "Oracle Linux Server %s" % oracle_ver
+        system_info = import_class("SystemInfo", *["ol", oracle_ver, oracle_pretty])
+        results = import_function("process_results", *[driver, system_info.id, "10.0", None, None])
+        self.assertTrue(results)
 
 
 if __name__ == "__main__":
