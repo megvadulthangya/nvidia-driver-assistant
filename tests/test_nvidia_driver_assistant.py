@@ -761,6 +761,15 @@ class DetectTest(unittest.TestCase):
 
         self.assertEqual(len(stderr), 0)
 
+    def test_driver_assistant_1(self):
+        """Test driver assistant scenario 2 Oracle alias for rhel"""
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        stdout, stderr = self.run_driver_assistant("ol")
+
+        self.assertEqual(len(stderr), 0)
+
     def test_driver_assistant_branch(self):
         """Test driver assistant --branch argument"""
         # Add 1 supported GPU (e.g. 4070 super)
@@ -824,6 +833,49 @@ class DetectTest(unittest.TestCase):
         # Test case sensitivity
         stdout, stderr = self.run_driver_assistant(
             "fedora", additional_args=["--module-flavor", "CloSed"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+    def test_driver_assistant_module_flavor_alias(self):
+        """Test driver assistant --module-flavor argument with the ol oracle alias"""
+        # Add 1 supported GPU (e.g. 4070 super)
+        self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
+
+        # This should fail
+        stdout, stderr = self.run_driver_assistant(
+            "ol", additional_args=["--module-flavor", "Fopen"]
+        )
+
+        self.assertTrue(len(stderr) > 0)
+
+        # This should also fail
+        stdout, stderr = self.run_driver_assistant(
+            "ol", additional_args=["--module-flavor", "closedo"]
+        )
+
+        self.assertTrue(len(stderr) > 0)
+
+        # This should pass
+        stdout, stderr = self.run_driver_assistant(
+            "ol", additional_args=["--module-flavor", "open"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+        # Test case sensitivity
+        stdout, stderr = self.run_driver_assistant(
+            "ol", additional_args=["--module-flavor", "oPEn"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+        # This should also pass
+        stdout, stderr = self.run_driver_assistant(
+            "ol", additional_args=["--module-flavor", "closed"]
+        )
+        self.assertEqual(len(stderr), 0)
+
+        # Test case sensitivity
+        stdout, stderr = self.run_driver_assistant(
+            "ol", additional_args=["--module-flavor", "CloSed"]
         )
         self.assertEqual(len(stderr), 0)
 
