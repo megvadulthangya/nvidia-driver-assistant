@@ -246,8 +246,8 @@ def get_distro(path=None):
         logging.debug(
             "get_distro(): detected %s%s %s distribution is supported"
             % (
-                system_info.id,
-                " %s" % system_info.original_id if system_info.id != system_info.id else "",
+                system_info.original_id,
+                " (%s)" % system_info.id if system_info.id != system_info.original_id else "",
                 system_info.version_id,
             )
         )
@@ -270,8 +270,8 @@ def get_distro(path=None):
         logging.error(
             "Error: detected %s%s %s distribution is not supported"
             % (
-                system_info.id,
-                " %s" % system_info.original_id if system_info.id != system_info.id else "",
+                system_info.original_id,
+                " (%s)" % system_info.id if system_info.id != system_info.original_id else "",
                 system_info.version_id,
             )
         )
