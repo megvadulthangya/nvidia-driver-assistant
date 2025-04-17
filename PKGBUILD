@@ -1,7 +1,7 @@
 # Maintainer: Philip Müller <philm[at]manjaro[dot]org>
 
 pkgname=nvidia-driver-assistant
-pkgver=0.20.124.06
+pkgver=0.20.133.20
 pkgrel=1
 _pkgrel=1
 pkgdesc="Detect and install the best NVIDIA driver packages for the system"
@@ -12,7 +12,7 @@ depends=('python')
 source=("https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/${pkgname}_${pkgver}-${_pkgrel}_all.deb"
         'show-driver'
         'manjaro.patch')
-sha256sums=('fda7c822495d648099febe46bf6dddada8f097096dbcb997d6746d603645fcbd'
+sha256sums=('af2009e8a7da838de6b95cc71dd1ae0908fc1096d9669af0efc1750579175f97'
             'ba2de9ef5a7295b3127bef360a5da89cacaec7c7362e351b33177045bcf9e3f7'
             '6cd1a0f543d72a3f87a32786b97d4de907d596c038eaf53abb8415bf5054daa4')
 
