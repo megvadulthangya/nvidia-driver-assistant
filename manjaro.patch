@@ -91,9 +91,9 @@
 +    #alias = "pci:v000010DEd00001241sv000010DEsd000018FEbc03sc00i00" # NVIDIA GeForce GT 545
 +    #alias = "pci:v000010DEd0000105Bsv000010DEsd000018FEbc03sc00i00" # Nvidia GeForce 800A (legacy 390.xx)
 +    #alias = "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00" # Nvidia GeForce GT 740A (legacy 470.xx)
-+    #uncommend the following for testing (390.xx & 470.xx)
++    # uncomment the following for testing (390.xx & 470.xx)
 +    #modaliases = ( {'pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0', 'pci:v000010DEd0000105Bsv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0'} )
-+    #uncommend the following for testing (nvidia-open & 470.xx)
++    # uncomment the following for testing (nvidia-open & 470.xx)
 +    #modaliases = ( {'pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0', 'pci:v000010DEd00002783sv000010DEsd000018FEbc03sc00i00': '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0'} )
 +
      # PCI IDs we should consider
