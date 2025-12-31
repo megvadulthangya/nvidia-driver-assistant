@@ -1,6 +1,6 @@
 # Maintainer: Philip Müller <philm[at]manjaro[dot]org>
 
-pkgname=nvidia-driver-assistant
+pkgname=nvidia-driver-assistant-awesome
 pkgver=0.23.48.01
 pkgrel=1
 _pkgrel=1
