@@ -1,7 +1,7 @@
 # Maintainer: Philip Müller <philm[at]manjaro[dot]org>
 
-pkgname=nvidia-driver-assistant-awesome
-pkgver=0.23.48.01
+pkgname=nvidia-driver-assistant
+pkgver=0.24.48.01
 pkgrel=1
 _pkgrel=1
 pkgdesc="Detect and install the best NVIDIA driver packages for the system"
