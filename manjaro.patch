@@ -19,7 +19,7 @@
  }
  
  branch_instructions = {
-@@ -112,6 +117,10 @@
+@@ -112,11 +117,29 @@
      "rhel-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
      "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
@@ -31,96 +31,174 @@
  
  proprietary_required = "proprietary_required"
  
-+def get_architecture_from_chip_family(chip_family):
-+    if not chip_family:
-+        return "unknown"
-+    chip_family = chip_family.upper()
-+    if chip_family.startswith("GM"):
-+        return "maxwell"
-+    if chip_family.startswith("GP"):
-+        return "pascal"
-+    if chip_family.startswith("GV"):
-+        return "volta"
-+    if chip_family.startswith("TU"):
-+        return "turing"
-+    if chip_family.startswith("GA"):
-+        return "ampere"
-+    if chip_family.startswith("AD"):
-+        return "ada"
-+    if chip_family.startswith("GH"):
-+        return "hopper"
-+    return "unknown"
-+
- 
- class Device(object):
-     def __init__(self, dev_id, name, features, legacybranch=None, chip_family=None, driver_hint=None):
-@@ -124,6 +147,14 @@
-         self.features = features
-         self.legacy_branch = legacybranch
-         self.driver_hint = driver_hint
-+        self.chip_family = chip_family
-+        self.architecture = get_architecture_from_chip_family(chip_family)
-+
-+        logging.debug(
-+            "Device detected: %s (arch=%s, chip_family=%s, driver_hint=%s, legacy_branch=%s)"
-+            % (self.name, self.architecture, chip_family, self.driver_hint, self.legacy_branch)
-+        )
- 
-         if not self.driver_hint:
-             if self.legacy_branch:
-@@ -133,6 +164,17 @@
-             try:
-                 if int(self.legacy_branch.split(".")[0]) <= 470:
-                     self.driver_hint = proprietary_required
-+            except ValueError:
-+                pass
-+
-+        # Enforce proprietary driver for unsupported open-kernel architectures
-+        # NVIDIA Open Kernel Module supports only Turing and newer
-+        if self.driver_hint == "open" and self.architecture in ("maxwell", "pascal", "volta"):
-+            logging.debug(
-+                "Forcing proprietary driver for %s (%s architecture)"
-+                % (self.name, self.architecture)
-+            )
-+            self.driver_hint = "proprietary"
++# Architectures that don't support Open Kernel Module
++OPEN_UNSUPPORTED_ARCHS = (
++    "maxwell", "pascal", "volta", "fermi", "kepler", 
++    "tesla2", "tesla1", "curie", "pre-curie", "unknown"
++)
 +
 +
 +def manjaro_get_kernel_package():
++    """Get kernel package name for Manjaro (e.g., linux618 from 6.18.xx)"""
 +    rel = platform.release()
 +    parts = rel.split(".")
 +    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
 +        return f"linux{parts[0]}{parts[1]}"
 +    logging.warning("Unexpected kernel release format: %s", rel)
 +    return None
-+
-+
-+def manjaro_get_legacy_branch(devices):
-+    for dev in devices.values():
-+        if dev.legacy_branch:
-+            return dev.legacy_branch.split(".")[0]
-+    return None
  
+ class Device(object):
+     def __init__(self, dev_id, name, features, legacybranch=None, chip_family=None, driver_hint=None):
+@@ -129,6 +152,46 @@
+         self.features = features
+         self.legacy_branch = legacybranch
+         self.driver_hint = driver_hint
++        self.chip_family = chip_family
++        
++        # Try to determine architecture from chip_family
++        self.architecture = self._get_architecture_from_chip_family(chip_family)
++        
++        # If still unknown, try to extract from device name
++        if self.architecture == "unknown":
++            self.architecture = self._get_architecture_from_device_name(name)
++            if self.architecture != "unknown":
++                logging.debug("Architecture determined from device name: %s -> %s", 
++                             name, self.architecture)
++
++        logging.debug(
++            "Device detected: %s (arch=%s, chip_family=%s, driver_hint=%s, legacy_branch=%s)",
++            self.name, self.architecture, chip_family, self.driver_hint, self.legacy_branch
++        )
++
++        # Determine driver hint if not set
++        if not self.driver_hint:
++            if self.legacy_branch:
++                self.driver_hint = proprietary_required
++            else:
++                self.driver_hint = "open"
++        else:
++            # If legacy branch is 470 or older, require proprietary driver
++            try:
++                if self.legacy_branch and int(self.legacy_branch.split(".")[0]) <= 470:
++                    self.driver_hint = proprietary_required
++            except (ValueError, AttributeError):
++                pass
++
++        # Enforce proprietary driver for architectures that don't support open kernel module
++        if self.driver_hint == "open" and self.architecture in OPEN_UNSUPPORTED_ARCHS:
++            logging.debug(
++                "Forcing proprietary driver for %s (%s architecture)",
++                self.name, self.architecture
++            )
++            self.driver_hint = "proprietary"
++
++    def _get_architecture_from_chip_family(self, chip_family):
++        if not chip_family:
++            return "unknown"
++        chip_family = chip_family.upper()
++        
++        # Modern architectures
++        if chip_family.startswith("GM"):
++            return "maxwell"
++        if chip_family.startswith("GP"):
++            return "pascal"
++        if chip_family.startswith("GV"):
++            return "volta"
++        if chip_family.startswith("TU"):
++            return "turing"
++        if chip_family.startswith("GA"):
++            return "ampere"
++        if chip_family.startswith("AD"):
++            return "ada"
++        if chip_family.startswith("GH"):
++            return "hopper"
++        
++        # Older architectures
++        if chip_family.startswith("GF"):
++            return "fermi"
++        if chip_family.startswith("GK"):
++            return "kepler"
++        if chip_family.startswith("GT"):  # Tesla 2.0 (GT200, GT215, etc.)
++            return "tesla2"
++        if chip_family.startswith("G9"):  # Tesla 1.0 (G80, G92, G94, etc.)
++            return "tesla1"
++        if chip_family.startswith("G7"):  # Curie (G70, G71, G72, etc.)
++            return "curie"
++        if chip_family.startswith("NV"):  # Rankine/Celsius (NV10, NV15, NV20, etc.)
++            return "pre-curie"
++        
++        return "unknown"
++
++    def _get_architecture_from_device_name(self, device_name):
++        """Try to extract architecture from device name as fallback"""
++        if not device_name:
++            return "unknown"
++        
++        name_upper = device_name.upper()
++        
++        # Check for architecture patterns in the name
++        if any(x in name_upper for x in ["MAXWELL", "GM10", "GM20", "GM20", "750", "900", "950"]):
++            return "maxwell"
++        if any(x in name_upper for x in ["PASCAL", "GP10", "1000", "1050", "1060", "1070", "1080"]):
++            return "pascal"
++        if "VOLTA" in name_upper or "GV" in name_upper:
++            return "volta"
++        if any(x in name_upper for x in ["TURING", "TU10", "TU1", "2000", "1660", "1650"]):
++            return "turing"
++        if any(x in name_upper for x in ["AMPERE", "GA10", "3000", "3050", "3060", "3070", "3080"]):
++            return "ampere"
++        if any(x in name_upper for x in ["ADA", "AD10", "4000", "4050", "4060", "4070", "4080"]):
++            return "ada"
++        if "HOPPER" in name_upper or "GH" in name_upper:
++            return "hopper"
++        if any(x in name_upper for x in ["FERMI", "GF", "500", "550", "560", "570", "580"]):
++            return "fermi"
++        if any(x in name_upper for x in ["KEPLER", "GK", "600", "650", "660", "670", "680", "690"]):
++            return "kepler"
++        if any(x in name_upper for x in ["TESLA", "GT200", "GTX 200", "GTX 280"]):
++            return "tesla2"
++        if "CURIE" in name_upper:
++            return "curie"
++        
++        return "unknown"
+ 
+-        if not self.driver_hint:
+-            if self.legacy_branch:
+-                self.driver_hint = proprietary_required
+-            else:
+-                self.driver_hint = "open"
+-        else:
+-            try:
+-                if int(self.legacy_branch.split(".")[0]) <= 470:
+-                    self.driver_hint = proprietary_required
+-            except ValueError:
+-                pass
+ 
+ def get_nvidia_devices(sys_path=None, supported_gpus=None):
+     ret = {}
+@@ -381,7 +444,23 @@
  
  def get_driver_from_json_hints(devices):
-@@ -386,6 +428,18 @@
-     proprietary_required = "proprietary_required"
+     hints = []
+-    proprietary_required = "proprietary_required"
++    
      for dev in devices.values():
 +        # Architecture-based override for open kernel module
-+        if dev.driver_hint == "open" and dev.architecture in ("maxwell", "pascal", "volta"):
++        if dev.driver_hint == "open" and dev.architecture in OPEN_UNSUPPORTED_ARCHS:
 +            logging.debug(
-+                "JSON hint override: %s (%s) does not support open kernel module"
-+                % (dev.name, dev.architecture)
++                "JSON hint override: %s (%s architecture) does not support open kernel module",
++                dev.name, dev.architecture
 +            )
 +            if dev.legacy_branch:
 +                hints.append(proprietary_required)
 +            else:
 +                hints.append("proprietary")
 +            continue
-+
++        
          if dev.driver_hint:
              hints.append(dev.driver_hint)
  
-@@ -427,7 +481,7 @@
+@@ -422,7 +501,7 @@
  
  
 -def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False):
@@ -128,7 +206,7 @@
      devices = get_nvidia_devices(sys_path, supported_gpus)
      print_pretty_gpu_summary(devices)
  
-@@ -438,9 +492,9 @@
+@@ -433,9 +512,9 @@
      if use_driver_hints:
          logging.debug("recommend_driver(): using json logic")
 -        return get_driver_from_json_hints(devices)
@@ -140,7 +218,7 @@
  
  
  def process_results(driver, distro_id, version_id, branch_id):
-@@ -467,6 +521,14 @@
+@@ -462,6 +541,14 @@
              print("Error: failed to get the latest driver branch", file=sys.stderr)
              return False
  
@@ -149,11 +227,13 @@
 +        if kernel_id:
 +            for i, line in enumerate(candidates):
 +                candidates[i] = line.replace("KERNEL", kernel_id)
++        else:
++            logging.warning("Could not determine kernel package name for Manjaro")
 +
      if branch_id:
          for i, line in enumerate(candidates):
              candidates[i] = line.replace("BRANCH", branch_id)
-@@ -598,7 +660,7 @@
+@@ -597,7 +684,7 @@
      if args.verbose:
          logging.getLogger().setLevel(logging.DEBUG)
  
@@ -162,11 +242,21 @@
          sys_path=sys_path, supported_gpus=supported_gpus, use_driver_hints=True
      )
      if not driver:
-@@ -623,6 +685,10 @@
+@@ -622,6 +709,14 @@
      logging.debug("OS detected: %s", system_info.id)
  
 +    if not branch_locked and system_info.id == "manjaro":
 +        branch_locked = manjaro_get_legacy_branch(devices)
++        if branch_locked:
++            logging.debug("Manjaro legacy branch detected: %s", branch_locked)
 +
      if needs_install:
          install_driver(driver, system_info.id, system_info.version_id, branch_locked)
++
+ 
++def manjaro_get_legacy_branch(devices):
++    """Get legacy branch from devices for Manjaro"""
++    for dev in devices.values():
++        if dev.legacy_branch:
++            return dev.legacy_branch.split(".")[0]
++    return None
