@@ -1,6 +1,45 @@
-# Changelog
 
-## [Unreleased]
+
+## CHANGELOG.md - Changes:
+
+
+
+### Modified:
+- **Device class extended** with architecture detection
+- **Distribution detection** for Manjaro/Arch recognition
+- **Driver recommendation logic** with architecture-based restrictions
+- **Package installation commands** with Manjaro/Arch specific instructions
+
+### Added variables and functions:
+- `OPEN_UNSUPPORTED_ARCHS` - List of architectures not supporting Open kernel
+- `manjaro_get_kernel_package()` - Extract kernel package name
+- `manjaro_get_legacy_branch()` - Legacy branch detection
+- Architecture detection methods in Device class
+
+### Added installation instructions:
+- `arch-closed`: `sudo pacman -S nvidia-dkms`
+- `arch-open`: `sudo pacman -S nvidia-open-dkms`
+- `manjaro-closed`: `sudo pacman -S KERNEL-nvidia`
+- `manjaro-open`: `sudo pacman -S KERNEL-nvidia-open`
+
+### Fixes:
+- Proper identification of Manjaro among Arch-based systems
+- Dynamic kernel placeholder replacement in Manjaro package names
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### Added
 - **Enhanced GPU architecture detection**: 
