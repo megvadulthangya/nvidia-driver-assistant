@@ -163,10 +163,50 @@
  
          if not flags or not open_supported in flags:
              self.driver_hint = proprietary_required
-@@ -300,6 +428,24 @@
+@@ -300,54 +428,50 @@
      return None
  
  
+-def get_distro(path=None):
+-    """Get the linux distribution from /etc/os-release"""
+-    release_file = "/etc/os-release" if not path else path
+-    distro_id = ""
+-    version_id = ""
+-    name = ""
+-    id_pattern = "ID="
+-    ver_pattern = "VERSION_ID="
+-    name_pattern_a = "NAME="
+-    name_pattern_b = "PRETTY_NAME="
+-    system_info = None
+-    try:
+-        with open(release_file, "r") as stream:
+-            for line in stream.readlines():
+-                if line.startswith(id_pattern):
+-                    distro_id = line.strip().replace(id_pattern, "").replace('"', "")
+-                elif line.startswith(ver_pattern):
+-                    version_id = line.strip().replace(ver_pattern, "").replace('"', "")
+-                elif line.startswith(name_pattern_a) or line.startswith(name_pattern_b):
+-                    name = (
+-                        line.strip()
+-                        .replace(name_pattern_b, "")
+-                        .replace(name_pattern_a, "")
+-                        .replace('"', "")
+-                    )
+-        if distro_id and version_id and name:
+-            system_info = SystemInfo(distro_id, version_id, name)
+-        elif distro_id and name:
+-            system_info = SystemInfo(distro_id, "", name)
+-        else:
+-            logging.error(
+-                "failed to detect Linux distribution: cannot extract valid values from %s"
+-                % release_file
+-            )
+-            return system_info
+-    except (IOError, FileNotFoundError, PermissionError) as e:
+-        logging.error(
+-            "failed to detect Linux distribution: cannot read %s: %s" % (release_file, e)
+-        )
+-        return system_info
 +def manjaro_get_legacy_branch(devices):
 +    """Get legacy branch from devices for Manjaro"""
 +    for dev in devices.values():
@@ -177,7 +217,16 @@
 +            )
 +            return dev.legacy_branch.split('.')[0]
 +    return None
-+
+ 
+-    if system_info.id in supported_distros:
+-        logging.debug(
+-            "get_distro(): detected %s%s %s distribution is supported"
+-            % (
+-                system_info.original_id,
+-                " (%s)" % system_info.id if system_info.id != system_info.original_id else "",
+-                system_info.version_id,
+-            )
+-        )
 +
 +def manjaro_get_kernel_package():
 +    """Get kernel package name for Manjaro (e.g., linux618 from 6.18.xx)"""
@@ -185,10 +234,74 @@
 +    kernel_release = platform.release().split(".")
 +    return f"linux{kernel_release[0]}{kernel_release[1]}"
 +
- def get_distro(path=None):
-     """Get the linux distribution from /etc/os-release"""
-     release_file = "/etc/os-release" if not path else path
-@@ -571,7 +717,37 @@
++def get_distro(path=None):
++    """Get the linux distribution from /etc/os-release - IMPROVED VERSION"""
++    release_file = "/etc/os-release" if not path else path
++    
++    # Default values
++    distro_id = None
++    version_id = ""
++    pretty_name = ""
++    
++    if not os.path.exists(release_file):
++        logging.error("OS release file not found: %s", release_file)
++        return None
++    
++    # Read and parse the os-release file
++    with open(release_file, 'r') as f:
++        for line in f:
++            line = line.strip()
++            if line.startswith('ID='):
++                distro_id = line.split('=', 1)[1].strip().strip('"')
++            elif line.startswith('VERSION_ID='):
++                version_id = line.split('=', 1)[1].strip().strip('"')
++            elif line.startswith('PRETTY_NAME='):
++                pretty_name = line.split('=', 1)[1].strip().strip('"')
++    
++    if not distro_id:
++        logging.error("Could not determine distribution ID from %s", release_file)
++        return None
++    
++    # Special handling for Arch-based distributions
++    if distro_id == "arch" and "manjaro" in pretty_name.lower():
++        distro_id = "manjaro"
++    
++    # Create SystemInfo object
++    system_info = SystemInfo(distro_id, version_id, pretty_name)
++    
++    # Check if distribution is supported
++    if system_info.id in supported_distros:
+         print(
+             "Detected system:\n  %s %s\n"
+             % (
+@@ -357,19 +481,16 @@
+                 system_info.version_id,
+             )
+         )
++        logging.debug("Detected supported distribution: %s %s", system_info.id, system_info.version_id)
+     else:
+-        logging.debug(
+-            "get_distro(): detected %s %s distribution is not supported"
+-            % (system_info.id, system_info.version_id)
+-        )
+         logging.error(
+-            "Error: detected %s%s %s distribution is not supported"
+-            % (
+-                system_info.original_id,
+-                " (%s)" % system_info.id if system_info.id != system_info.original_id else "",
+-                system_info.version_id,
+-            )
++            "Unsupported distribution detected: %s %s",
++            system_info.id, system_info.version_id
+         )
++        # Don't exit here, let the caller handle it
++        # This allows for testing with unsupported distributions
++    
++    logging.debug("Distribution detection complete: %s %s", system_info.id, system_info.version_id)
+ 
+     return system_info
+ 
+@@ -571,7 +692,37 @@
      hints = [dev.driver_hint for dev in devices.values()]
      all_support_open = all(hint in (default, proprietary_supported) for hint in hints)
      all_require_closed = all(hint == proprietary_required for hint in hints)
@@ -226,7 +339,7 @@
      any_require_closed = any(hint == proprietary_required for hint in hints)
  
      if all_support_open:
-@@ -588,10 +764,11 @@
+@@ -588,10 +739,11 @@
          # one closed - closed
          logging.debug("recommend_driver(): at least one devices requires closed")
          return "closed"
@@ -242,7 +355,7 @@
  
  def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False, simulate_gpu=None, mhwd=False) -> tuple[str, dict]:
      """Recommend a driver using the available logic
-@@ -628,6 +805,15 @@
+@@ -628,6 +780,15 @@
      try:
          # If this is a dictionary, instructions differ per distro release range
          if candidates.keys():
@@ -258,3 +371,12 @@
              candidates = get_conditional_instructions(distro_id, version_id, candidates)
      except AttributeError:
          pass
+@@ -730,6 +891,8 @@
+         system_info = override_distro(distro_override.lower())
+         print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id))
+     else:
++        # Force logging for debugging
++        logging.getLogger().setLevel(logging.DEBUG)
+         system_info = get_distro(os_release_path)
+ 
+     if not system_info:
