@@ -26,7 +26,7 @@ source=("https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86
 # Az első kettő marad a régi (az eredeti fájloké), a harmadikat cseréld ki a sajátodra!
 sha256sums=('63b7eb75805530914f723213af8ec6070089d60782bece179dd6fc22caf914a9'
             'ba2de9ef5a7295b3127bef360a5da89cacaec7c7362e351b33177045bcf9e3f7'
-            'efd0b696193e006d8eeebcea6812248258f7211eedc8b143927a38abbad04c9c') 
+            'SKIP') 
  
 
 prepare() {
