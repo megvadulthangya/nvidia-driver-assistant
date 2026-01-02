@@ -9,7 +9,7 @@
 +import platform
  import string
  import sys
- 
+
 @@ -82,6 +83,7 @@
      "rhel",
      "rocky",
@@ -19,6 +19,7 @@
 +    "manjaro",
 +    "arch",
  ]
+
 @@ -122,6 +124,10 @@
      "rhel-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
@@ -28,84 +29,48 @@
 +    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia"],
 +    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-open"],
  }
- 
-@@ -151,6 +157,10 @@
+
+@@ -151,6 +157,28 @@
      "rhel-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
      "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
 +    "arch-closed": ["Not supported"],
 +    "arch-open": ["Not supported"],
-+    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia-BRANCH"],
-+    "manjaro-open": ["Not supported"],
- }
- 
-@@ -160,6 +170,16 @@
- open_supported = "kernelopen"
- support_flags = (open_supported, proprietary_supported)
- 
++    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia-BRANCHxx"],
++    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-BRANCHxx-open"],
++}
++
 +# Architectures that don't support Open Kernel Module
 +OPEN_UNSUPPORTED_ARCHS = (
 +    "maxwell", "pascal", "volta", "fermi", "kepler", 
 +    "tesla2", "tesla1", "curie", "pre-curie", "unknown"
 +)
 +
-+def manjaro_get_kernel_package():
-+    """Get kernel package name for Manjaro (e.g., linux618 from 6.18.xx)"""
-+    rel = platform.release()
-+    parts = rel.split(".")
-+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-+        return f"linux{parts[0]}{parts[1]}"
-+    logging.warning("Unexpected kernel release format: %s", rel)
-+    return None
++simulated_gpus = {
++    "545": "pci:v000010DEd00001241sv000010DEsd000018FEbc03sc00i00", # NVIDIA GeForce GT 545
++    "740A": "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00", # Nvidia GeForce GT 740A (legacy 470.xx)
++    "750": "pci:v000010DEd00001380sv000010DEsd000018FEbc03sc00i00", # NVIDIA GeForce GTX 750 Ti
++    "800A": "pci:v000010DEd0000105Bsv000010DEsd000018FEbc03sc00i00", # Nvidia GeForce 800A (legacy 390.xx)
++    "4070": "pci:v000010DEd00002783sv000010DEsd000018FEbc03sc00i00", # NVIDIA GeForce RTX 4070 SUPER
++    "5070": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00", # NVIDIA GeForce RTX 5070 Laptop GPU
++    "unknown": "pci:v000010DEd000022BCsv000010DEsd000018FEbc04sc03i00", # not a Nvidia GPU
++}
 +
- 
+
  class Device(object):
-@@ -176,25 +196,100 @@
-         self.features = features
+@@ -166,6 +194,105 @@
+         self.vdpau_feat = ""
          self.legacy_branch = legacy_branch
          self.driver_hint = ""
 +        self.chip_family = ""
 +        self.architecture = "unknown"
          self._parse_features(features)
 +        self._determine_architecture()
- 
-     def _parse_features(self, features):
-         flags = []
-         for feat in features:
-             feat = feat.lower()
-             if feat.find("vdpaufeatureset") != -1:
-                 self.vdpau_feat = feat.replace("vdpaufeatureset", "")[0]
-             elif feat in support_flags:
-                 flags.append(feat)
- 
-         if not flags or not open_supported in flags:
-             self.driver_hint = proprietary_required
-         elif proprietary_supported in flags:
-             self.driver_hint = proprietary_supported
-         else:
-             if open_supported in flags:
-                 self.driver_hint = default
-             else:
--                # This should not happen
--                # Broken flags in the json file?
-                 self.driver_hint = ""
-                 logging.warning(
-                     "device %s support level not flagged as %s" % (self.id, open_supported)
-                 )
- 
--        # Legacy drivers <= 470
--        if not self.driver_hint:
--            if self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
--                self.driver_hint = proprietary_required
++
 +    def _determine_architecture(self):
 +        """Determine GPU architecture and override driver hint if needed"""
-+        # Try to get architecture from chip family if available
-+        if hasattr(self, 'chip_family') and self.chip_family:
-+            self.architecture = self._get_architecture_from_chip_family(self.chip_family)
-+        
-+        # If still unknown, try from device name
-+        if self.architecture == "unknown":
-+            self.architecture = self._get_architecture_from_device_name(self.name)
++        # First, try to get architecture from device name
++        self.architecture = self._get_architecture_from_device_name(self.name)
 +        
 +        # Override driver hint for architectures that don't support open kernel
 +        if self.architecture in OPEN_UNSUPPORTED_ARCHS:
@@ -114,375 +79,254 @@
 +                self.name, self.architecture
 +            )
 +            self.driver_hint = proprietary_required
-+        # Legacy drivers <= 470 always need proprietary
-+        elif self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
-+            self.driver_hint = proprietary_required
-+
-+    def _get_architecture_from_chip_family(self, chip_family):
-+        if not chip_family:
-+            return "unknown"
-+        
-+        chip_family = chip_family.upper()
-+        
-+        # Modern architectures
-+        if chip_family.startswith("GM"):
-+            return "maxwell"
-+        if chip_family.startswith("GP"):
-+            return "pascal"
-+        if chip_family.startswith("GV"):
-+            return "volta"
-+        if chip_family.startswith("TU"):
-+            return "turing"
-+        if chip_family.startswith("GA"):
-+            return "ampere"
-+        if chip_family.startswith("AD"):
-+            return "ada"
-+        if chip_family.startswith("GH"):
-+            return "hopper"
-+        
-+        # Older architectures
-+        if chip_family.startswith("GF"):
-+            return "fermi"
-+        if chip_family.startswith("GK"):
-+            return "kepler"
-+        if chip_family.startswith("GT"):  # Tesla 2.0
-+            return "tesla2"
-+        if chip_family.startswith("G9"):  # Tesla 1.0
-+            return "tesla1"
-+        if chip_family.startswith("G7"):  # Curie
-+            return "curie"
-+        if chip_family.startswith("NV"):  # pre-Curie
-+            return "pre-curie"
-+        
-+        return "unknown"
 +
 +    def _get_architecture_from_device_name(self, device_name):
-+        """Try to extract architecture from device name as fallback"""
++        """Try to extract architecture from device name"""
 +        if not device_name:
 +            return "unknown"
 +        
 +        name_upper = device_name.upper()
-+        arch_patterns = [
-+            ("MAXWELL", "maxwell"), ("PASCAL", "pascal"), ("VOLTA", "volta"),
-+            ("TURING", "turing"), ("AMPERE", "ampere"), ("ADA", "ada"),
-+            ("HOPPER", "hopper"), ("FERMI", "fermi"), ("KEPLER", "kepler"),
-+            ("TESLA", "tesla2"), ("CURIE", "curie"), ("GEFORCE", "unknown")
-+        ]
 +        
-+        for pattern, arch in arch_patterns:
-+            if pattern in name_upper:
-+                return arch
++        # Check for architecture patterns in the name
++        if any(x in name_upper for x in ["MAXWELL", "GM10", "GM20", "GM20", "750", "900", "950", "GTX 750", "GTX 950"]):
++            return "maxwell"
++        if any(x in name_upper for x in ["PASCAL", "GP10", "1000", "1050", "1060", "1070", "1080", "GTX 10", "GTX 1080"]):
++            return "pascal"
++        if "VOLTA" in name_upper or "GV" in name_upper or "TITAN V" in name_upper:
++            return "volta"
++        if any(x in name_upper for x in ["TURING", "TU10", "TU1", "2000", "1660", "1650", "RTX 20", "GTX 16"]):
++            return "turing"
++        if any(x in name_upper for x in ["AMPERE", "GA10", "3000", "3050", "3060", "3070", "3080", "RTX 30"]):
++            return "ampere"
++        if any(x in name_upper for x in ["ADA", "AD10", "4000", "4050", "4060", "4070", "4080", "RTX 40"]):
++            return "ada"
++        if "HOPPER" in name_upper or "GH" in name_upper or "H100" in name_upper:
++            return "hopper"
++        if any(x in name_upper for x in ["FERMI", "GF", "500", "550", "560", "570", "580", "GTX 5"]):
++            return "fermi"
++        if any(x in name_upper for x in ["KEPLER", "GK", "600", "650", "660", "670", "680", "690", "GTX 6"]):
++            return "kepler"
++        if any(x in name_upper for x in ["TESLA", "GT200", "GTX 200", "GTX 280", "GTX 285"]):
++            return "tesla2"
++        if any(x in name_upper for x in ["CURIE", "G70", "G71", "G72", "G73", "7300", "7600", "7900"]):
++            return "curie"
 +        
 +        return "unknown"
- 
- 
-@@ -286,6 +381,9 @@
-             self.id = "opensuse"
-         elif self.id in ["cm", "mariner"]:
-             self.id = "azurelinux"
-+        elif self.id in ["manjaro", "arch"]:
-+            # Keep as-is for Arch-based distributions
-+            pass
-         elif self.id in ["rocky", "ol"]:
-             self.id = "rhel"
- 
-@@ -294,6 +392,13 @@
- 
- 
+
+     def _parse_features(self, features):
+         flags = []
+@@ -173,6 +300,9 @@
+             feat = feat.lower()
+             if feat.find("vdpaufeatureset") != -1:
+                 self.vdpau_feat = feat.replace("vdpaufeatureset", "")[0]
++                logging.debug(
++                    "Device: has following feature: %s" % (feat)
++                )
+             elif feat in support_flags:
+                 flags.append(feat)
+
+@@ -184,6 +314,9 @@
+         elif proprietary_supported in flags:
+             self.driver_hint = proprietary_supported
+         else:
+             if open_supported in flags:
+                 self.driver_hint = default
+             else:
+@@ -196,7 +329,16 @@
+         # Legacy drivers <= 470
+         if not self.driver_hint:
+             if self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
++                logging.debug(
++                    "Device: belongs to legacy branch %s"
++                    % self.legacy_branch
++                )
+                 self.driver_hint = proprietary_required
++        else:
++            if self.legacy_branch:
++                logging.debug(
++                    "Device: belongs to legacy branch %s"
++                    % self.legacy_branch
++                )
+
+
+@@ -250,6 +392,17 @@
+             if self.id != self.original_id:
+                 logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
+
++def manjaro_get_kernel_package():
++    """Get kernel package name for Manjaro (e.g., linux618 from 6.18.xx)"""
++    import platform
++    kernel_release = platform.release().split(".")
++    return f"linux{kernel_release[0]}{kernel_release[1]}"
++
++def manjaro_get_legacy_branch(devices):
++    for dev in devices.values():
++         if dev.legacy_branch:
++             return dev.legacy_branch.split('.')[0]
++    return None
+
  def get_distro(path=None):
-+    """Get the linux distribution from /etc/os-release with Arch/Manjaro detection"""
-+    # First get basic info
-+    system_info = _get_distro_basic(path)
-+    if not system_info:
-+        return None
-+    
-+    # Special handling for Arch-based distributions
-     release_file = "/etc/os-release" if not path else path
-     distro_id = ""
-     version_id = ""
-@@ -305,14 +410,44 @@
-     try:
-         with open(release_file, "r") as stream:
-             for line in stream.readlines():
--                if line.startswith(id_pattern):
--                    distro_id = line.strip().replace(id_pattern, "").replace('"', "")
--                elif line.startswith(ver_pattern):
--                    version_id = line.strip().replace(ver_pattern, "").replace('"', "")
--                elif line.startswith(name_pattern_a) or line.startswith(name_pattern_b):
--                    name = (
--                        line.strip()
--                        .replace(name_pattern_b, "")
-+                if line.startswith(name_pattern_a) or line.startswith(name_pattern_b):
-+                    name = line.strip()\
-+                        .replace(name_pattern_b, "")\
-                         .replace(name_pattern_a, "")
-                         .replace('"', "")
-+                    break
+     """Get the linux distribution from /etc/os-release"""
+@@ -275,6 +428,9 @@
+                     )
+         if distro_id and version_id and name:
+             system_info = SystemInfo(distro_id, version_id, name)
++        elif distro_id and name:
++            # For distributions without VERSION_ID (like Arch/Manjaro)
++            system_info = SystemInfo(distro_id, "", name)
+         else:
+             logging.error(
+                 "failed to detect Linux distribution: cannot extract valid values from %s"
+@@ -301,6 +457,13 @@
+                 ),
+                 system_info.version_id,
+             )
 +        
-+        # Check if it's Manjaro (Arch-based)
-+        if system_info.id == "arch" and "manjaro" in name.lower():
++        # Special handling for Arch-based distributions
++        if system_info.id == "arch" and "manjaro" in system_info.pretty_name.lower():
 +            system_info.id = "manjaro"
 +            system_info.original_id = "manjaro"
 +            system_info.update_info()
 +            logging.debug("get_distro(): detected Manjaro (Arch-based)")
-+            
-+    except (IOError, FileNotFoundError, PermissionError) as e:
-+        logging.warning("Could not read pretty name from %s: %s", release_file, e)
-+    
-+    return system_info
-+
-+def _get_distro_basic(path=None):
-+    """Basic distribution detection without Arch/Manjaro special handling"""
-+    release_file = "/etc/os-release" if not path else path
-+    distro_id = ""
-+    version_id = ""
-+    name = ""
-+    id_pattern = "ID="
-+    ver_pattern = "VERSION_ID="
-+    name_pattern_a = "NAME="
-+    name_pattern_b = "PRETTY_NAME="
-+    system_info = None
-+    try:
-+        with open(release_file, "r") as stream:
-+            for line in stream.readlines():
-+                if line.startswith(id_pattern):
-+                    distro_id = line.strip().replace(id_pattern, "").replace('"', "")
-+                elif line.startswith(ver_pattern):
-+                    version_id = line.strip().replace(ver_pattern, "").replace('"', "")
-+                elif line.startswith(name_pattern_a) or line.startswith(name_pattern_b):
-+                    name = line.strip().replace(name_pattern_b, "").replace(name_pattern_a, "").replace('"', "")
-         if distro_id and version_id and name:
-             system_info = SystemInfo(distro_id, version_id, name)
-@@ -322,7 +457,6 @@
-             )
-             return system_info
-     except (IOError, FileNotFoundError, PermissionError) as e:
--        logging.error(
-             "failed to detect Linux distribution: cannot read %s: %s" % (release_file, e)
          )
-         return system_info
-@@ -427,6 +561,20 @@
-     for gpu in gpus:
-         for dev_id in candidates:
-             if gpu["devid"] == dev_id:
-+                # Extract chip_family if available
-+                chip_family = ""
-+                if "chip_family" in gpu:
-+                    chip_family = gpu["chip_family"]
-+                elif "architecture" in gpu:
-+                    chip_family = gpu["architecture"]
-+                
-+                # Create device with chip_family information
-                 device = Device(
-                     dev_id, gpu["name"], gpu["features"], gpu.get("legacybranch")
-                 )
-+                # Store chip_family for architecture detection
-+                device.chip_family = chip_family
-+                # Re-run architecture detection with chip_family
-+                device._determine_architecture()
-+                
-                 devices[dev_id] = device
-@@ -437,6 +585,9 @@
-     # Unknown GPU IDs - assume they require Open
-     unknown_devices = len(devices.keys()) < len(candidates)
-     for candidate in candidates:
-         if candidate not in devices.keys():
-             dev = Device(candidate, "unknown", [], "")
-             dev.driver_hint = default
-+            # Unknown device - check if we should force proprietary
-+            if dev.architecture in OPEN_UNSUPPORTED_ARCHS:
-+                dev.driver_hint = proprietary_required
-             devices[candidate] = dev
-@@ -468,22 +619,37 @@
- 
- def get_driver_from_vdpau_feat(devices):
-     """Use the supported VDPAU feature sets to recommend a driver"""
-     hints = []
-     for dev in devices.values():
-+        # First check architecture override
-+        if dev.architecture in OPEN_UNSUPPORTED_ARCHS:
-+            logging.debug(
-+                "get_driver_from_vdpau_feat(): proprietary_required by device %s (%s) - architecture %s in OPEN_UNSUPPORTED_ARCHS",
-+                dev.id, dev.name, dev.architecture
-+            )
-+            hints.append(proprietary_required)
-+            continue
-+        
-         if dev.vdpau_feat:
-             if dev.vdpau_feat in vdpau_group_a:
-                 hint = proprietary_required
-                 logging.debug(
-                     "get_driver_from_vdpau_feat(): skipping device %s (%s) - since vdpau_group_a = %s"
-                     % (dev.id, dev.name, dev.vdpau_feat)
-                 )
-                 continue
-             elif dev.vdpau_feat in vdpau_group_b:
-                 hint = proprietary_required
-                 logging.debug(
-                     "get_driver_from_vdpau_feat(): proprietary_required by device %s:\n %s belongs to vdpau_group_b = %s"
-                     % (dev.id, dev.name, dev.vdpau_feat)
-                 )
-             elif dev.vdpau_feat in vdpau_group_c:
--                hint = proprietary_supported
-+                # Check if architecture supports open
-+                if dev.architecture in OPEN_UNSUPPORTED_ARCHS:
-+                    hint = proprietary_required
-+                else:
-+                    hint = proprietary_supported
-                 logging.debug(
-                     "get_driver_from_vdpau_feat(): proprietary_supported by device %s:\n %s belongs to since vdpau_group_c = %s"
-                     % (dev.id, dev.name, dev.vdpau_feat)
-@@ -492,29 +658,20 @@
-                 hint = default
-                 logging.debug(
-                     "get_driver_from_vdpau_feat(): default option for device %s:\n %s belongs to new vdpau_group = %s"
-                     % (dev.id, dev.name, dev.vdpau_feat)
-                 )
-         else:
-             if dev.legacy_branch and int(dev.legacy_branch.split(".")[0]) <= 470:
-                 hint = proprietary_required
--                logging.debug(
--                    "get_driver_from_vdpau_feat(): proprietary_required by device %s:\n %s belongs to legacybranch = %s"
--                    % (dev.id, dev.name, dev.legacy_branch)
--                )
-             else:
-                 # Unknown device that we added
--                logging.debug(
--                    "get_driver_from_vdpau_feat(): default option for device %s: %s device"
--                    % (dev.id, dev.name)
--                )
-                 hint = default
--        logging.debug(
--            "get_driver_from_vdpau_feat(): device %s:\n %s - hint %s" % (dev.id, dev.name, hint)
--        )
-         hints.append(hint)
+     else:
+         logging.debug(
+@@ -322,6 +485,8 @@
+         distro_id = distro_override.strip().split(":")[0]
+         version_id = distro_override.strip().split(":")[-1]
+     else:
++        if distro_override in ["manjaro", "arch"]:
++            return SystemInfo(distro_override, "", distro_override)
+         distro_id = distro_override.rstrip(string.digits)
+         version_id = distro_override[len(distro_id) :]
+
+@@ -364,7 +529,7 @@
+     return modaliases
+
+
+-def get_nvidia_devices(sys_path, supported_gpus):
++def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu = None):
+     """Get a dictionary with all the NVIDIA graphics devices
+
+     Returns {str PCI_ID: Device object, etc.}
+@@ -372,6 +537,10 @@
+     # PCI_CLASS_DISPLAY 0x03
+     pci_class_display = "03"
+     modaliases = get_system_modaliases(sys_path)
++    if simulate_gpu:
++        # Use simulated GPU for testing
++        modaliases = {simulated_gpus[simulate_gpu]: '/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0'}
 +    
-+    logging.debug("get_driver_from_vdpau_feat(): hints = %s", hints)
- 
-     if default in hints:
-         # Higher priority to Open
-         logging.debug("get_driver_from_vdpau_feat(): recommend open")
-         return "open"
-     else:
-@@ -527,6 +684,15 @@
- 
+     json_path = supported_gpus
+
+     # PCI IDs we should consider
+@@ -407,6 +576,10 @@
+                     devices[dev_id] = device
+     except (IOError, FileNotFoundError, PermissionError) as e:
+         logging.error("failed to read read %s: %s" % (json_path, e))
++        return None
++    except Exception as e:
++        logging.error("Unexpected error in get_nvidia_devices: %s" % (e))
++        import traceback
++        logging.debug(traceback.format_exc())
+         return None
+
+     # Unknown GPU IDs - assume they require Open
+@@ -494,7 +667,7 @@
      return None
- 
-+def manjaro_get_legacy_branch(devices):
-+    """Get legacy branch from devices for Manjaro"""
-+    for dev in devices.values():
-+        if dev.legacy_branch:
-+            try:
-+                return dev.legacy_branch.split(".")[0]
-+            except (ValueError, AttributeError):
-+                continue
-+    return None
- 
- def get_driver_from_json_hints(devices):
-     """Use the flags in supported-gpus.json to recommend a driver"""
-@@ -542,6 +708,17 @@
-         logging.debug("recommend_driver(): all devices support open")
-         return "open"
-     elif all_require_closed:
-+        logging.debug("recommend_driver(): all devices require closed")
-+        return "closed"
-+    elif any_default:
-+        # one default / unknown - open
-+        logging.debug("recommend_driver(): at least one devices requires open")
-+        return "open"
-+    elif any_require_closed:
-+        # one closed - closed
-+        logging.debug("recommend_driver(): at least one devices requires closed")
-+        return "closed"
-+    else:
-         logging.debug("recommend_driver(): all devices require closed")
-         return "closed"
-     elif any_default:
-@@ -562,6 +739,18 @@
- 
- 
- ####
-+def _process_candidates_for_manjaro(candidates, distro_id):
-+    """Process candidates for Manjaro to replace KERNEL placeholder"""
-+    if distro_id == "manjaro":
-+        kernel_pkg = manjaro_get_kernel_package()
-+        if kernel_pkg:
-+            processed = []
+
+
+-def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False):
++def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False, simulate_gpu=None, mhwd=False) -> tuple[str, dict]:
+     """Recommend a driver using the available logic"""
+     devices = get_nvidia_devices(sys_path, supported_gpus)
+     print_pretty_gpu_summary(devices)
+@@ -503,10 +676,10 @@
+         return None
+
+     logging.debug("recommend_driver(): Do device IDs support the open driver?")
+-
++    
+     if use_driver_hints:
+         logging.debug("recommend_driver(): using json logic")
+-        return get_driver_from_json_hints(devices)
++        return get_driver_from_json_hints(devices), devices
+     else:
+         logging.debug("recommend_driver(): using VDPAU logic")
+         return get_driver_from_vdpau_feat(devices)
+@@ -535,6 +708,15 @@
+             print("Error: failed to get the latest driver branch", file=sys.stderr)
+             return False
+
++    if distro_id =="manjaro":
++        # Check for the currently running kernel
++        _kernel_id = manjaro_get_kernel_package()
++        if _kernel_id:
++            it = 0
 +            for line in candidates:
-+                processed.append(line.replace("KERNEL", kernel_pkg))
-+            return processed
-+        else:
-+            logging.warning("Could not determine kernel package name for Manjaro")
-+    return candidates
- 
- 
- def get_conditional_instructions(distro_id, version_id, instructions_dict):
-@@ -578,6 +767,9 @@
-     else:
-         candidates = instructions.get("%s-%s" % (distro_id, driver))
- 
-+    # Process Manjaro kernel package name
-+    candidates = _process_candidates_for_manjaro(candidates, distro_id)
++                candidates[it] = line.replace("KERNEL", _kernel_id)
++                it += 1
 +
-     if not candidates:
-         print(
-             "Error: could not find the instructions for %s-%s" % (distro_id, driver),
-@@ -615,11 +807,11 @@
-                 break
-         return status == 0
-     else:
--        print(
--            "Please copy and paste the following command%s to install the %s kernel module flavour:"
--            % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
--        )
--        for line in candidates:
-+    print(
-+        "Please copy and paste the following command%s to install the %s kernel module flavour:"
-+        % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
+     if branch_id:
+         it = 0
+         for line in candidates:
+@@ -618,6 +800,16 @@
+         "verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
+     )
+     args = parser.parse_args()
++    parser.add_argument(
++        "--simulate-gpu",
++        choices=list(simulated_gpus.keys()),
++        nargs="?",
++        type=str,
++        help='Specify a simulated gpu; Useful for testing',
 +    )
-+    for line in candidates:
-             print("  %s" % line)
-     return True
- 
-@@ -690,6 +882,15 @@
++    parser.add_argument(
++        "--mhwd", action="store_true", help='Signal mhwd to use "open" or "closed" driver', default=False
++    )
+
+     needs_install = args.install
+     branch_locked = args.branch
+@@ -627,6 +819,8 @@
+     distro_override = args.distro
+     module_override = args.module_flavor
+     print_supported_distros = args.list_supported_distros
++    simulate_gpu = args.simulate_gpu
++    mhwd = args.mhwd
+     system_info = None
+
+     if print_supported_distros:
+@@ -655,7 +849,10 @@
      if args.verbose:
          logging.getLogger().setLevel(logging.DEBUG)
- 
-+    # Check if we're on Manjaro or Arch
-+    if os.path.exists("/etc/os-release"):
-+        with open("/etc/os-release", "r") as f:
-+            content = f.read().lower()
-+            if "manjaro" in content:
-+                supported_distros.append("manjaro")
-+            elif "arch" in content and "manjaro" not in content:
-+                supported_distros.append("arch")
-+
-     driver = recommend_driver(
+
+-    driver = recommend_driver(
++    driver, devices = recommend_driver(
++        sys_path=sys_path, supported_gpus=supported_gpus, use_driver_hints=True,
++        simulate_gpu=simulate_gpu, mhwd=mhwd
++    )
          sys_path=sys_path, supported_gpus=supported_gpus, use_driver_hints=True
      )
-@@ -697,6 +898,14 @@
-         print("Error: Failed to find a suitable driver", file=sys.stderr)
+     if not driver:
+@@ -663,6 +860,11 @@
          exit(1)
      logging.debug("Recommended driver: %s" % driver)
-+    
-+    # Get devices for potential legacy branch detection
-+    devices = get_nvidia_devices(sys_path, supported_gpus)
-+    
-+    # For Manjaro, detect legacy branch if not specified
-+    if not branch_locked and system_info and system_info.id == "manjaro" and devices:
-+        branch_locked = manjaro_get_legacy_branch(devices)
-+        logging.debug("Manjaro: detected legacy branch: %s", branch_locked)
- 
+
++    if mhwd:
++        # Output only the driver type for MHWD
++        print(driver)
++        exit(0)
++
      if module_override:
          driver = module_override.lower()
-@@ -714,8 +923,10 @@
- 
-     if not system_info:
+         if not driver in ("open", "closed"):
+@@ -682,6 +884,9 @@
          # print("Error: unsupported Linux distribution", file=sys.stderr)
-+        logging.error("System info not detected")
          exit(1)
      logging.debug("OS detected: %s" % system_info.id)
-+    
++    if not branch_locked and system_info.id == "manjaro":
++        branch_locked = manjaro_get_legacy_branch(devices)
++
      if needs_install:
          install_driver(driver, system_info.id, system_info.version_id, branch_locked)
      else:
