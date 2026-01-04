@@ -1,6 +1,9 @@
 --- nvidia-driver-assistant	2025-12-08 22:49:57.000000000 +0100
-+++ nvidia-driver-assistant_20260104_v22.py	2026-01-04 20:21:40.914247326 +0100
-@@ -2,9 +2,23 @@
++++ nvidia-driver-assistant-easteregg_20260104_23.py	2026-01-04 20:50:40.614543926 +0100
+@@ -1,10 +1,24 @@
+-#!/usr/bin/python3
++#!/usr/bin/env python3
++# -*- coding: utf-8 -*-
  
  """Driver package query/installation tool for NVIDIA GPUs on Linux"""
  
@@ -19,16 +22,16 @@
 +# Further Modifications / Maintenance:
 +#   Gábor Gyöngyösi (@megvadulthangya)
 +#     - refactoring and enhancements
-+#
-+#
++#     - Easter egg integration
 +#
  # Permission is hereby granted, free of charge, to any person obtaining a
  # copy of this software and associated documentation files (the "Software"),
  # to deal in the Software without restriction, including without limitation
-@@ -22,8 +36,20 @@
+@@ -22,8 +36,43 @@
  # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  # DEALINGS IN THE SOFTWARE.
++
 +# ==============================================================================
 +#  ____ _               _
 +# / ___| |__   ___  ___| | __
@@ -39,20 +42,43 @@
 +# Maintainer:
 +#   Gábor Gyöngyösi (@megvadulthangya)
 +#   https://links.gshoots.hu
++#
++# Internal-Revision: 23
++# Purpose: Added Easter egg (--linus argument)
++# ==============================================================================
++
++"""
++nvidia-driver-assistant
++
++NOTE FOR MAINTAINERS:
++
++This script intentionally overrides NVIDIA's default kernel module
++selection logic for certain legacy GPUs.
++
++This is a user-protection decision.
++
++See: --linus
++"""
++
++# ============================================================
++#  Nvidia, FUCK YOU!
++#      — Linus Torvalds
++#
++#   ( I . I )
  #
 -# Author: Alberto Milone <amilone@nvidia.com>
-+# Internal-Revision: 22
-+# Purpose: personal development tracking
-+# ==============================================================================
++#  Try: --linus
++# ============================================================
  
  import os
  import logging
-@@ -32,51 +58,95 @@ import json
+@@ -32,51 +81,96 @@ import json
  import argparse
  import string
  import sys
 +import platform
 +import subprocess
++import time
  
 -
 +# Determine the directory where this script is located
@@ -167,7 +193,7 @@
  instructions = {
      "amzn-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
      "amzn-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-@@ -102,12 +172,13 @@ instructions = {
+@@ -102,12 +196,13 @@ instructions = {
      },
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
      "ubuntu-open": ["sudo apt-get install -y nvidia-open"],
@@ -185,7 +211,7 @@
  branch_instructions = {
      "amzn-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
      "amzn-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
-@@ -133,14 +204,69 @@ branch_instructions = {
+@@ -133,14 +228,116 @@ branch_instructions = {
      },
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
      "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
@@ -252,13 +278,60 @@
 +}
  
  
- class SystemInfo(object):
+-class SystemInfo(object):
 -    """Class to represent the information from the os-release file"""
--
++# ------------------------------------------------------------
++# Easter Egg (FULLY ISOLATED)
++# ------------------------------------------------------------
++
++_LINUS_FRAMES = [
++    r"( . . )",
++    r"( . . )   |",
++    r"( . . )   | |",
++    r"( I . I )  | |",
++]
++
++def _clear_screen():
++    sys.stdout.write("\033[2J\033[H")
++    sys.stdout.flush()
++
++
++def _run_linus_easter_egg():
++    # Safety: never show this in non-interactive environments
++    if not sys.stdout.isatty():
++        return 0
++
++    for frame in _LINUS_FRAMES:
++        _clear_screen()
++        print("\n\n   " + frame)
++        time.sleep(0.35)
++
++    time.sleep(0.4)
++    _clear_screen()
++
++    print(r"""
++ ███╗   ██╗██╗   ██╗██╗██████╗ ██╗ █████╗
++ ████╗  ██║██║   ██║██║██╔══██╗██║██╔══██╗
++ ██╔██╗ ██║██║   ██║██║██║  ██║██║███████║
++ ██║╚██╗██║╚██╗ ██╔╝██║██║  ██║██║██╔══██║
++ ██║ ╚████║ ╚████╔╝ ██║██████╔╝██║██║  ██║
++ ╚═╝  ╚═══╝  ╚═══╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═╝
++
++             FUCK YOU!!!
++     — Linus Torvalds
+ 
++ This assistant exists so your hardware
++ does not become obsolete by JSON.
++
++ Stability > Marketing
++""")
++
++
++class SystemInfo(object):
      def __init__(self, id, version_id, pretty_name):
          super(SystemInfo, self).__init__()
          self.id = id
-@@ -148,41 +274,369 @@ class SystemInfo(object):
+@@ -148,41 +345,369 @@ class SystemInfo(object):
          self.version_id = version_id
          self.pretty_name = pretty_name
          self.update_info()
@@ -634,7 +707,7 @@
              self.driver_hint = proprietary_required
          elif proprietary_supported in flags:
              self.driver_hint = proprietary_supported
-@@ -190,58 +644,151 @@ class Device(object):
+@@ -190,58 +715,151 @@ class Device(object):
              if open_supported in flags:
                  self.driver_hint = default
              else:
@@ -827,7 +900,7 @@
      if system_info.id in supported_distros:
          logging.debug(
              "get_distro(): detected %s%s %s distribution is supported"
-@@ -271,34 +818,48 @@ def get_distro(path=None):
+@@ -271,34 +889,48 @@ def get_distro(path=None):
              "Error: detected %s%s %s distribution is not supported"
              % (
                  system_info.original_id,
@@ -882,7 +955,7 @@
          if "modalias" in files:
              try:
                  with open(os.path.join(path, "modalias")) as file:
-@@ -310,7 +871,6 @@ def get_system_modaliases(sys_path=None)
+@@ -310,7 +942,6 @@ def get_system_modaliases(sys_path=None)
          if not modalias:
              continue
  
@@ -890,7 +963,7 @@
          driver_path = os.path.join(path, "driver")
          module_path = os.path.join(driver_path, "module")
  
-@@ -321,8 +881,391 @@ def get_system_modaliases(sys_path=None)
+@@ -321,8 +952,391 @@ def get_system_modaliases(sys_path=None)
      return modaliases
  
  
@@ -1283,7 +1356,7 @@
      try:
          import apt_pkg
      except ModuleNotFoundError:
-@@ -338,7 +1281,6 @@ def ubuntu_get_latest_driver_branch(path
+@@ -338,7 +1352,6 @@ def ubuntu_get_latest_driver_branch(path
      apt_pkg.init_system()
      cache = apt_pkg.Cache(None)
      candidates = []
@@ -1291,7 +1364,7 @@
      for package in cache.packages:
          branch = re.search(r"nvidia-driver-([0-9]+)-open", package.name)
          if branch:
-@@ -351,154 +1293,150 @@ def ubuntu_get_latest_driver_branch(path
+@@ -351,154 +1364,150 @@ def ubuntu_get_latest_driver_branch(path
          return None
  
  
@@ -1549,7 +1622,7 @@
      all_support_open = all(hint in (default, proprietary_supported) for hint in hints)
      all_require_closed = all(hint == proprietary_required for hint in hints)
      any_default = any(hint == default for hint in hints)
-@@ -511,11 +1449,9 @@ def get_driver_from_json_hints(devices):
+@@ -511,11 +1520,9 @@ def get_driver_from_json_hints(devices):
          logging.debug("recommend_driver(): all devices require closed")
          return "closed"
      elif any_default:
@@ -1561,7 +1634,7 @@
          logging.debug("recommend_driver(): at least one devices requires closed")
          return "closed"
      else:
-@@ -523,38 +1459,73 @@ def get_driver_from_json_hints(devices):
+@@ -523,38 +1530,73 @@ def get_driver_from_json_hints(devices):
          return None
  
  
@@ -1648,7 +1721,7 @@
      if branch_id:
          candidates = branch_instructions.get("%s-%s" % (distro_id, driver))
      else:
-@@ -568,14 +1539,12 @@ def process_results(driver, distro_id, v
+@@ -568,14 +1610,12 @@ def process_results(driver, distro_id, v
          return False
  
      try:
@@ -1664,7 +1737,7 @@
          latest_branch = ubuntu_get_latest_driver_branch()
          if latest_branch:
              branch_id = latest_branch
-@@ -583,10 +1552,16 @@ def process_results(driver, distro_id, v
+@@ -583,10 +1623,16 @@ def process_results(driver, distro_id, v
              print("Error: failed to get the latest driver branch", file=sys.stderr)
              return False
  
@@ -1682,7 +1755,7 @@
              it += 1
  
      if install:
-@@ -594,12 +1569,13 @@ def process_results(driver, distro_id, v
+@@ -594,12 +1640,13 @@ def process_results(driver, distro_id, v
              "Installing the following package%s for the %s kernel module flavour:"
              % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
          )
@@ -1697,7 +1770,7 @@
                      file=sys.stderr,
                  )
                  break
-@@ -615,7 +1591,17 @@ def process_results(driver, distro_id, v
+@@ -615,7 +1662,17 @@ def process_results(driver, distro_id, v
  
  
  def install_driver(driver, distro_id, version_id, branch_id=None):
@@ -1716,7 +1789,7 @@
      print(
          "Using the NVIDIA driver implies acceptance of the NVIDIA Software\n"
          'License Agreement, contained in the "LICENSE" file in the\n'
-@@ -625,10 +1611,22 @@ def install_driver(driver, distro_id, ve
+@@ -625,11 +1682,32 @@ def install_driver(driver, distro_id, ve
  
  
  def print_instructions(driver, distro_id, version_id, branch_id=None):
@@ -1735,11 +1808,22 @@
  
  
  def main():
+-    parser = argparse.ArgumentParser()
 +    """Main function: parse arguments and coordinate the tool's workflow"""
-     parser = argparse.ArgumentParser()
++    parser = argparse.ArgumentParser(description="NVIDIA driver selection assistant")
++    
++    # Easter egg argument
++    parser.add_argument(
++        "--linus",
++        action="store_true",
++        help="Show a historical reminder about driver policy decisions"
++    )
++    
++    # Original arguments
      parser.add_argument(
          "--install",
-@@ -679,8 +1677,27 @@ def main():
+         action="store_true",
+@@ -679,10 +1757,35 @@ def main():
          help='Specify a kernel module flavor; "open" and "closed" are accepted values. Useful for testing',
      )
      parser.add_argument(
@@ -1766,8 +1850,16 @@
 +    )
      args = parser.parse_args()
  
++    # 🔒 EARLY EXIT — NO SIDE EFFECTS
++    if args.linus:
++        _run_linus_easter_egg()
++        return 0
++
++    # Original logic continues here...
      needs_install = args.install
-@@ -691,12 +1708,15 @@ def main():
+     branch_locked = args.branch
+     supported_gpus = args.supported_gpus
+@@ -691,12 +1794,15 @@ def main():
      distro_override = args.distro
      module_override = args.module_flavor
      print_supported_distros = args.list_supported_distros
@@ -1784,7 +1876,7 @@
          exit(0)
  
      if not supported_gpus:
-@@ -705,12 +1725,11 @@ def main():
+@@ -705,12 +1811,11 @@ def main():
          elif os.path.isfile(default_json_path):
              supported_gpus = default_json_path
  
@@ -1798,7 +1890,7 @@
              exit(1)
          else:
              if int_branch < 560:
-@@ -720,14 +1739,52 @@ def main():
+@@ -720,14 +1825,52 @@ def main():
      if args.verbose:
          logging.getLogger().setLevel(logging.DEBUG)
  
@@ -1853,7 +1945,7 @@
      if module_override:
          driver = module_override.lower()
          if not driver in ("open", "closed"):
-@@ -744,9 +1801,13 @@ def main():
+@@ -744,9 +1887,13 @@ def main():
          system_info = get_distro(os_release_path)
  
      if not system_info:
@@ -1868,3 +1960,10 @@
      if needs_install:
          install_driver(driver, system_info.id, system_info.version_id, branch_locked)
      else:
+@@ -758,4 +1905,4 @@ def main():
+ 
+ 
+ if __name__ == "__main__":
+-    main()
++    sys.exit(main())
+\ Nincs új sor a fájl végén
