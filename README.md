@@ -12,19 +12,37 @@ This patch enhances the official NVIDIA Driver Assistant (`nvidia-driver-assista
 - **Compatibility Validation**: Checks if requested driver branches are compatible with the GPU's architecture
 
 ### 2. **Safety Enhancements**
+- **Legacy Branch Open Kernel Restriction**: All legacy branches (71.86.xx to 580.xx) cannot use open kernel modules (configurable via `ENABLE_LEGACY_OPENKERNEL_RESTRICTION`)
+- **Architecture-Based Check Toggle**: Enable/disable architecture-based open kernel checking via `ENABLE_ARCHITECTURE_CHECK`
 - **Strict Compatibility Mode**: Prevents installation of drivers that don't support the GPU architecture
 - **Auto-fallback Mechanism**: Automatically selects safe driver versions when incompatibility is detected
-- **Confirmation Requirements**: Optional user confirmation for potentially incompatible drivers
+- **Multiple Match Warning System**: Informs users when multiple GPU models match the same device ID in database
 
 ### 3. **Improved GPU Detection**
 - **Mobile vs Desktop Detection**: Better differentiation between laptop and desktop GPUs
 - **Subsystem Matching**: Uses subsystem vendor/device IDs for more accurate GPU identification
 - **Multiple Match Resolution**: Intelligently selects the best GPU match from multiple possibilities
+- **Multiple Match Warnings**: Shows informative warnings when multiple models match, without affecting functionality
 
 ### 4. **Workarounds & Bug Fixes**
-- **580+ Legacy Branch Workaround**: Fixes incorrect legacy branch assignments in NVIDIA's database
-- **Maxwell Architecture Correction**: Prevents Maxwell GPUs from using 580+ drivers
+- **Legacy Branch Correction**: Fixed bug in supported driver range logic - legacy cards now consistently use JSON legacybranch as maximum version
+- **JSON Consistency**: Fixed contradictory `supported_max_driver` and `legacy` values in JSON output
 - **Backward Compatibility**: Maintains compatibility with existing configurations
+
+## Full Source Code Access
+
+For better understanding of the code changes and implementation details, I'm sharing the complete modified Python script. This allows developers and maintainers to examine the full implementation beyond just the patch file.
+
+**Full script location**: [`MOD-NDA.py`](./MOD-NDA.py) (in repository root)
+
+This complete script contains:
+- All architecture detection logic
+- Safety validation mechanisms
+- GPU matching algorithms
+- Distribution-specific override implementations
+- Enhanced logging and debugging features
+
+While the primary distribution method remains the patch file for packaging purposes, the full script is provided for transparency and to facilitate code review and understanding of the complete implementation.
 
 ## Usage
 
@@ -74,11 +92,16 @@ DISTRO_580_LEGACY_OVERRIDE_BRANCH = None  # e.g., "470", "390"
 # Overrides ALL legacy cards regardless of architecture
 DISTRO_LEGACY_OVERRIDE_BRANCH = None
 
+# Legacy branch open kernel restriction
+ENABLE_LEGACY_OPENKERNEL_RESTRICTION = True
+
+# Architecture-based open kernel check toggle
+ENABLE_ARCHITECTURE_CHECK = True
+
 # Safety features
 ENABLE_STRICT_COMPATIBILITY = True
 REQUIRE_CONFIRMATION = False
 AUTO_FALLBACK = True
-ENABLE_580_LEGACY_BUG_WORKAROUND = True
 ```
 
 ## Installation Instructions for Package Maintainers
@@ -161,11 +184,18 @@ The script validates that:
 2. The driver version is ≤ the maximum supported (for legacy cards)
 3. Open kernel modules are only recommended for supported architectures
 
-### 580+ Legacy Branch Bug Workaround
-Some older GPUs in NVIDIA's database are incorrectly marked as supporting 580+ drivers. The workaround:
-1. Detects when legacybranch ≥ 580
-2. Checks if the architecture actually supports those drivers
-3. Falls back to appropriate legacy branches (e.g., 470, 390)
+### Legacy Branch Open Kernel Restriction
+All legacy branches from 71.86.xx to 580.xx cannot use open kernel modules:
+1. Detects legacybranch value from JSON
+2. Prevents open kernel usage for legacy branches ≤ 580
+3. Legacy branches above 580 are not restricted (future-proofing)
+
+### Multiple Match Warning System
+When multiple GPU models match the same device ID:
+1. Shows informative warning to user
+2. Explains that driver selection is unaffected
+3. Lists all possible matching models
+4. Warnings suppressed in MHWD mode and JSON output
 
 ### Auto-Fallback Mechanism
 When incompatibility is detected:
@@ -187,7 +217,12 @@ When incompatibility is detected:
    - Enable verbose mode (`--verbose`) for details
    - Consider using the auto-fallback feature
 
-3. **Mobile GPU detection issues**
+3. **Multiple match warnings**
+   - Informational only - does not affect functionality
+   - Can be suppressed with `--json` or `--mhwd` flags
+   - Shows the program is working correctly with complex GPU databases
+
+4. **Mobile GPU detection issues**
    - Some desktop GPUs with "M" in the name might be misclassified
    - The script has exception lists for common desktop GPUs
    - Can be overridden via distribution-specific variables
@@ -221,7 +256,6 @@ Further maintenance and enhancements by Gábor Gyöngyösi (@megvadulthangya).
 
 See the `LICENSE` file and the script header for full license details.
 
-
 ## Credits
 
 - Original Author: Alberto Milone (NVIDIA)
@@ -239,3 +273,5 @@ For issues with this enhanced version:
 ---
 
 **Note**: This enhanced version is designed to be a drop-in replacement for the original `nvidia-driver-assistant`. All original functionality is preserved while adding safety features and improved detection.
+
+**Version**: 2026.01.05.1-1

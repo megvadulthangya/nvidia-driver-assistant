@@ -1,9 +1,6 @@
 --- nvidia-driver-assistant	2025-12-08 22:49:57.000000000 +0100
-+++ nvidia-driver-assistant-easteregg_20260104_23.py	2026-01-04 20:50:40.614543926 +0100
-@@ -1,10 +1,24 @@
--#!/usr/bin/python3
-+#!/usr/bin/env python3
-+# -*- coding: utf-8 -*-
++++ nvidia-driver-assistant-easteregg_20260105_v25.py	2026-01-05 19:49:01.638042054 +0100
+@@ -2,9 +2,23 @@
  
  """Driver package query/installation tool for NVIDIA GPUs on Linux"""
  
@@ -22,16 +19,16 @@
 +# Further Modifications / Maintenance:
 +#   Gábor Gyöngyösi (@megvadulthangya)
 +#     - refactoring and enhancements
-+#     - Easter egg integration
++#
++#
 +#
  # Permission is hereby granted, free of charge, to any person obtaining a
  # copy of this software and associated documentation files (the "Software"),
  # to deal in the Software without restriction, including without limitation
-@@ -22,8 +36,43 @@
+@@ -22,8 +36,20 @@
  # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  # DEALINGS IN THE SOFTWARE.
-+
 +# ==============================================================================
 +#  ____ _               _
 +# / ___| |__   ___  ___| | __
@@ -42,43 +39,30 @@
 +# Maintainer:
 +#   Gábor Gyöngyösi (@megvadulthangya)
 +#   https://links.gshoots.hu
-+#
-+# Internal-Revision: 23
-+# Purpose: Added Easter egg (--linus argument)
-+# ==============================================================================
-+
-+"""
-+nvidia-driver-assistant
-+
-+NOTE FOR MAINTAINERS:
-+
-+This script intentionally overrides NVIDIA's default kernel module
-+selection logic for certain legacy GPUs.
-+
-+This is a user-protection decision.
-+
-+See: --linus
-+"""
-+
-+# ============================================================
-+#  Nvidia, FUCK YOU!
-+#      — Linus Torvalds
-+#
-+#   ( I . I )
  #
 -# Author: Alberto Milone <amilone@nvidia.com>
-+#  Try: --linus
-+# ============================================================
++# Internal-Revision: 25
++# Purpose: personal development tracking
++# ==============================================================================
  
  import os
  import logging
-@@ -32,51 +81,96 @@ import json
+@@ -32,51 +58,110 @@ import json
  import argparse
  import string
  import sys
 +import platform
 +import subprocess
 +import time
++
++# ============================================================
++#  Nvidia, FUCK YOU!
++#      — Linus Torvalds
++#
++#   ( I . I )
++#
++#  Try: --linus
++# ============================================================
  
 -
 +# Determine the directory where this script is located
@@ -104,17 +88,6 @@
  open_supported = "kernelopen"
  support_flags = (open_supported, proprietary_supported)
  
-+# ===== NVIDIA 580+ LEGACY BRANCH BUG WORKAROUND =====
-+ENABLE_580_LEGACY_BUG_WORKAROUND = True
-+
-+# Architectures that support open kernel modules
-+OPEN_CAPABLE_ARCHS = ("turing", "ampere", "ada", "blackwell")
-+# Architectures that don't support open kernel modules (require proprietary)
-+OPEN_UNSUPPORTED_ARCHS = (
-+    "maxwell", "pascal", "volta", "fermi", "kepler", 
-+    "tesla2", "tesla1", "curie", "pre-curie", "unknown"
-+)
-+
 +# ===== CONTROL VARIABLES (for distribution-specific overrides) =====
 +# 1. Non-legacy cards (no legacybranch in JSON)
 +#    Set to override default driver branch for modern GPUs (e.g., "535", "545", etc.)
@@ -128,6 +101,22 @@
 +#    Set to override all legacy cards regardless of architecture
 +DISTRO_LEGACY_OVERRIDE_BRANCH = None  # Changed from "70" to None to avoid incorrect override
 +# ===========================================================================
++
++# ===== LEGACY BRANCH OPENKERNEL RESTRICTION =====
++# If True, all legacy branches (71.86.xx to 580.xx) will not use open kernel modules
++ENABLE_LEGACY_OPENKERNEL_RESTRICTION = True
++
++# ===== ARCHITECTURE-BASED OPENKERNEL CHECK =====
++# If True, use architecture lists to determine open kernel capability
++ENABLE_ARCHITECTURE_CHECK = True
++
++# Architectures that support open kernel modules (only used if ENABLE_ARCHITECTURE_CHECK is True)
++OPEN_CAPABLE_ARCHS = ("turing", "ampere", "ada", "blackwell")
++# Architectures that don't support open kernel modules (require proprietary)
++OPEN_UNSUPPORTED_ARCHS = (
++    "maxwell", "pascal", "volta", "fermi", "kepler", 
++    "tesla2", "tesla1", "curie", "pre-curie", "unknown"
++)
 +
 +# ===== ARCHITECTURE MINIMUM DRIVER REQUIREMENTS =====
 +# Minimum driver version required for each GPU architecture
@@ -193,7 +182,7 @@
  instructions = {
      "amzn-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
      "amzn-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
-@@ -102,12 +196,13 @@ instructions = {
+@@ -102,12 +187,13 @@ instructions = {
      },
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
      "ubuntu-open": ["sudo apt-get install -y nvidia-open"],
@@ -211,7 +200,7 @@
  branch_instructions = {
      "amzn-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
      "amzn-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
-@@ -133,14 +228,116 @@ branch_instructions = {
+@@ -133,14 +219,69 @@ branch_instructions = {
      },
      "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
      "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
@@ -278,60 +267,13 @@
 +}
  
  
--class SystemInfo(object):
+ class SystemInfo(object):
 -    """Class to represent the information from the os-release file"""
-+# ------------------------------------------------------------
-+# Easter Egg (FULLY ISOLATED)
-+# ------------------------------------------------------------
-+
-+_LINUS_FRAMES = [
-+    r"( . . )",
-+    r"( . . )   |",
-+    r"( . . )   | |",
-+    r"( I . I )  | |",
-+]
-+
-+def _clear_screen():
-+    sys.stdout.write("\033[2J\033[H")
-+    sys.stdout.flush()
-+
-+
-+def _run_linus_easter_egg():
-+    # Safety: never show this in non-interactive environments
-+    if not sys.stdout.isatty():
-+        return 0
-+
-+    for frame in _LINUS_FRAMES:
-+        _clear_screen()
-+        print("\n\n   " + frame)
-+        time.sleep(0.35)
-+
-+    time.sleep(0.4)
-+    _clear_screen()
-+
-+    print(r"""
-+ ███╗   ██╗██╗   ██╗██╗██████╗ ██╗ █████╗
-+ ████╗  ██║██║   ██║██║██╔══██╗██║██╔══██╗
-+ ██╔██╗ ██║██║   ██║██║██║  ██║██║███████║
-+ ██║╚██╗██║╚██╗ ██╔╝██║██║  ██║██║██╔══██║
-+ ██║ ╚████║ ╚████╔╝ ██║██████╔╝██║██║  ██║
-+ ╚═╝  ╚═══╝  ╚═══╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═╝
-+
-+             FUCK YOU!!!
-+     — Linus Torvalds
- 
-+ This assistant exists so your hardware
-+ does not become obsolete by JSON.
-+
-+ Stability > Marketing
-+""")
-+
-+
-+class SystemInfo(object):
+-
      def __init__(self, id, version_id, pretty_name):
          super(SystemInfo, self).__init__()
          self.id = id
-@@ -148,41 +345,369 @@ class SystemInfo(object):
+@@ -148,41 +289,366 @@ class SystemInfo(object):
          self.version_id = version_id
          self.pretty_name = pretty_name
          self.update_info()
@@ -479,18 +421,6 @@
 +        """
 +        min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
 +        
-+        # Special handling for Maxwell architecture
-+        if self.architecture == "maxwell":
-+            # Maxwell should not use 580+ drivers
-+            if self.legacy_branch:
-+                legacy_major = self.legacy_branch.split('.')[0]
-+                try:
-+                    if int(legacy_major) > 470:
-+                        logging.warning(f"Correcting legacy branch for Maxwell GPU: {legacy_major} -> 470")
-+                        return min_driver, "470"
-+                except ValueError:
-+                    pass
-+        
 +        # Determine maximum driver version:
 +        # 1. If this is a legacy card (has legacybranch in JSON), use that as max
 +        # 2. If legacy_override is True (using DISTRO_LEGACY_OVERRIDE_BRANCH or DISTRO_580_LEGACY_OVERRIDE_BRANCH), 
@@ -549,8 +479,9 @@
 +        1. Old variable backward compatibility override
 +        2. Non-legacy default override
 +        3. 580+ legacy override with safety checks
-+        4. NVIDIA 580+ legacy branch bug workaround
-+        5. Normal JSON-based logic
++        4. Legacy branch openkernel restriction (NEW)
++        5. Architecture-based check (if enabled)
++        6. Normal JSON-based logic
 +        """
          flags = []
          for feat in features:
@@ -681,33 +612,41 @@
 +            except ValueError:
 +                pass
 +        
-+        # ===== NVIDIA 580+ LEGACY BRANCH BUG WORKAROUND =====
-+        # Workaround for incorrect legacy branch assignments in JSON database
-+        if self.legacy_branch and ENABLE_580_LEGACY_BUG_WORKAROUND:
++        # ===== 4. LEGACY BRANCH OPENKERNEL RESTRICTION (NEW LOGIC) =====
++        # If enabled, all legacy branches up to 580.xx cannot use open kernel modules
++        if self.legacy_branch and ENABLE_LEGACY_OPENKERNEL_RESTRICTION:
 +            legacy_major = self.legacy_branch.split('.')[0]
 +            try:
 +                legacy_major_int = int(legacy_major)
-+                if legacy_major_int >= 580:
-+                    if self.architecture in OPEN_CAPABLE_ARCHS:
-+                        if open_supported in flags:
-+                            self.driver_hint = default
-+                        else:
-+                            self.driver_hint = proprietary_required
-+                    else:
-+                        self.driver_hint = proprietary_required
-+                    return
-+                elif legacy_major_int <= 470:
++                # Legacy branches 71.86, 96.43, 173.14, 304, 340, 390, 470, 580
++                # All legacy branches up to 580 cannot use open kernel
++                if legacy_major_int <= 580:
 +                    self.driver_hint = proprietary_required
++                    logging.debug(
++                        "Legacy branch restriction: %s with legacy branch %s forced to proprietary",
++                        self.name, self.legacy_branch
++                    )
 +                    return
 +            except ValueError:
 +                pass
 +        
-+        # ===== NORMAL LOGIC (JSON-based feature flags) =====
++        # ===== 5. ARCHITECTURE-BASED CHECK (only if enabled) =====
++        if ENABLE_ARCHITECTURE_CHECK:
++            if self.architecture in OPEN_CAPABLE_ARCHS:
++                if open_supported in flags:
++                    self.driver_hint = default
++                else:
++                    self.driver_hint = proprietary_required
++            else:
++                self.driver_hint = proprietary_required
++            return
++        
++        # ===== 6. NORMAL LOGIC (JSON-based feature flags) =====
 +        if not flags or open_supported not in flags:
              self.driver_hint = proprietary_required
          elif proprietary_supported in flags:
              self.driver_hint = proprietary_supported
-@@ -190,58 +715,151 @@ class Device(object):
+@@ -190,58 +656,151 @@ class Device(object):
              if open_supported in flags:
                  self.driver_hint = default
              else:
@@ -900,7 +839,7 @@
      if system_info.id in supported_distros:
          logging.debug(
              "get_distro(): detected %s%s %s distribution is supported"
-@@ -271,34 +889,48 @@ def get_distro(path=None):
+@@ -271,34 +830,48 @@ def get_distro(path=None):
              "Error: detected %s%s %s distribution is not supported"
              % (
                  system_info.original_id,
@@ -955,7 +894,7 @@
          if "modalias" in files:
              try:
                  with open(os.path.join(path, "modalias")) as file:
-@@ -310,7 +942,6 @@ def get_system_modaliases(sys_path=None)
+@@ -310,7 +883,6 @@ def get_system_modaliases(sys_path=None)
          if not modalias:
              continue
  
@@ -963,7 +902,7 @@
          driver_path = os.path.join(path, "driver")
          module_path = os.path.join(driver_path, "module")
  
-@@ -321,8 +952,391 @@ def get_system_modaliases(sys_path=None)
+@@ -321,8 +893,454 @@ def get_system_modaliases(sys_path=None)
      return modaliases
  
  
@@ -1017,7 +956,7 @@
 +    return info
 +
 +
-+def select_best_gpu_match(matching_gpus, pci_info=None):
++def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False):
 +    """Select the best GPU match from multiple possibilities
 +    
 +    Selection logic (in order of priority):
@@ -1033,6 +972,7 @@
 +    Args:
 +        matching_gpus: List of GPU dicts from JSON
 +        pci_info: Dictionary with PCI device information (vendor, device, subsystem_vendor, subsystem_device)
++        suppress_warnings: Whether to suppress multiple match warnings (for MHWD/JSON output)
 +        
 +    Returns:
 +        dict: Selected GPU entry
@@ -1041,6 +981,9 @@
 +        return matching_gpus[0]
 +    
 +    logging.debug(f"select_best_gpu_match(): Found {len(matching_gpus)} matching GPUs")
++    
++    # Store the list of matching GPUs for warning message
++    all_matching_names = [gpu["name"] for gpu in matching_gpus]
 +    
 +    # Convert PCI subsystem IDs to hex strings for comparison
 +    if pci_info and 'subsystem_vendor' in pci_info and 'subsystem_device' in pci_info:
@@ -1064,7 +1007,11 @@
 +                
 +                if gpu_vendor_norm == pci_vendor_norm and gpu_device_norm == pci_device_norm:
 +                    logging.debug(f"select_best_gpu_match(): Exact subsystem match: {gpu['name']}")
-+                    return gpu
++                    selected_gpu = gpu
++                    # Show warning if multiple matches and not suppressing warnings
++                    if len(matching_gpus) > 1 and not suppress_warnings:
++                        show_multiple_match_warning(pci_info.get('device'), selected_gpu["name"], all_matching_names)
++                    return selected_gpu
 +    
 +    # 2. Try to match by subsystem vendor only
 +    if pci_info and 'subsystem_vendor' in pci_info:
@@ -1076,7 +1023,11 @@
 +                
 +                if gpu_vendor_norm == pci_vendor_norm:
 +                    logging.debug(f"select_best_gpu_match(): Subsystem vendor match: {gpu['name']}")
-+                    return gpu
++                    selected_gpu = gpu
++                    # Show warning if multiple matches and not suppressing warnings
++                    if len(matching_gpus) > 1 and not suppress_warnings:
++                        show_multiple_match_warning(pci_info.get('device'), selected_gpu["name"], all_matching_names)
++                    return selected_gpu
 +    
 +    # 3. If simulating, try to match by expected name
 +    simulate_gpu = pci_info.get('simulate_gpu') if pci_info else None
@@ -1085,7 +1036,11 @@
 +        for gpu in matching_gpus:
 +            if expected_name.lower() in gpu["name"].lower():
 +                logging.debug(f"select_best_gpu_match(): Simulated name match: '{expected_name}' -> '{gpu['name']}'")
-+                return gpu
++                selected_gpu = gpu
++                # Show warning if multiple matches and not suppressing warnings
++                if len(matching_gpus) > 1 and not suppress_warnings:
++                    show_multiple_match_warning(pci_info.get('device'), selected_gpu["name"], all_matching_names)
++                return selected_gpu
 +    
 +    # 4. Determine system type (laptop vs desktop)
 +    is_laptop_system_val = is_laptop_system()
@@ -1115,20 +1070,32 @@
 +        logging.debug("select_best_gpu_match(): Desktop system detected, prioritizing desktop GPUs")
 +    
 +    if len(matching_gpus) == 1:
-+        return matching_gpus[0]
++        selected_gpu = matching_gpus[0]
++        # Show warning if originally had multiple matches and not suppressing warnings
++        if len(all_matching_names) > 1 and not suppress_warnings:
++            show_multiple_match_warning(pci_info.get('device') if pci_info else None, selected_gpu["name"], all_matching_names)
++        return selected_gpu
 +    
 +    # 5. Prefer entries with legacybranch (more specific)
 +    with_legacy = [g for g in matching_gpus if g.get("legacybranch")]
 +    if with_legacy:
 +        matching_gpus = with_legacy
 +        if len(matching_gpus) == 1:
-+            return matching_gpus[0]
++            selected_gpu = matching_gpus[0]
++            # Show warning if originally had multiple matches and not suppressing warnings
++            if len(all_matching_names) > 1 and not suppress_warnings:
++                show_multiple_match_warning(pci_info.get('device') if pci_info else None, selected_gpu["name"], all_matching_names)
++            return selected_gpu
 +    
 +    # 6. Prefer entries with more features
 +    max_features = max(len(g.get("features", [])) for g in matching_gpus)
 +    with_max_features = [g for g in matching_gpus if len(g.get("features", [])) == max_features]
 +    if len(with_max_features) == 1:
-+        return with_max_features[0]
++        selected_gpu = with_max_features[0]
++        # Show warning if originally had multiple matches and not suppressing warnings
++        if len(all_matching_names) > 1 and not suppress_warnings:
++            show_multiple_match_warning(pci_info.get('device') if pci_info else None, selected_gpu["name"], all_matching_names)
++        return selected_gpu
 +    
 +    # 7. Prefer more specific names (avoid "unknown", "Generic", etc.)
 +    def name_specificity_score(name):
@@ -1155,11 +1122,44 @@
 +    best_matches = [g for g in with_max_features if name_specificity_score(g["name"]) == best_score]
 +    
 +    if len(best_matches) == 1:
-+        return best_matches[0]
++        selected_gpu = best_matches[0]
++        # Show warning if originally had multiple matches and not suppressing warnings
++        if len(all_matching_names) > 1 and not suppress_warnings:
++            show_multiple_match_warning(pci_info.get('device') if pci_info else None, selected_gpu["name"], all_matching_names)
++        return selected_gpu
 +    
 +    # 8. Original order - take the first one
 +    logging.warning("select_best_gpu_match(): Multiple equally good matches, using first")
-+    return matching_gpus[0]
++    selected_gpu = matching_gpus[0]
++    # Show warning if multiple matches and not suppressing warnings
++    if len(all_matching_names) > 1 and not suppress_warnings:
++        show_multiple_match_warning(pci_info.get('device') if pci_info else None, selected_gpu["name"], all_matching_names)
++    return selected_gpu
++
++
++def show_multiple_match_warning(device_id, selected_name, all_names):
++    """Show a warning when multiple GPU models match the same device ID
++    
++    Args:
++        device_id: The device ID that has multiple matches
++        selected_name: The name of the selected GPU model
++        all_names: List of all matching GPU model names
++    """
++    print("\n" + "="*70, file=sys.stderr)
++    print("NOTICE: Multiple GPU models found in database for device ID:", file=sys.stderr)
++    print(f"  Device ID: {device_id}", file=sys.stderr)
++    print(f"  Selected model: {selected_name}", file=sys.stderr)
++    print("  Other possible models in database:", file=sys.stderr)
++    
++    for name in all_names:
++        if name != selected_name:
++            print(f"    - {name}", file=sys.stderr)
++    
++    print("\n  Note: The driver selection is the same for all these models,", file=sys.stderr)
++    print("  so this does not affect functionality or compatibility.", file=sys.stderr)
++    print("  We automatically selected the most appropriate model based on", file=sys.stderr)
++    print("  your system configuration and available information.", file=sys.stderr)
++    print("="*70 + "\n", file=sys.stderr)
 +
 +
 +def is_laptop_system():
@@ -1199,13 +1199,14 @@
 +    return False
 +
 +
-+def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None):
++def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, suppress_warnings=False):
 +    """Get a dictionary with all the NVIDIA graphics devices
 +    
 +    Args:
 +        sys_path: Optional alternative /sys path (for testing)
 +        supported_gpus: Path to supported-gpus.json file
 +        simulate_gpu: Simulated GPU ID for testing
++        suppress_warnings: Whether to suppress multiple match warnings (for MHWD/JSON output)
 +        
 +    Returns:
 +        dict: Dictionary of Device objects keyed by device ID
@@ -1280,7 +1281,8 @@
 +                            # Create PCI info dictionary for matching
 +                            pci_match_info = {
 +                                "subsystem_vendor": subsys_vendor,
-+                                "subsystem_device": subsys_device
++                                "subsystem_device": subsys_device,
++                                "device": devid
 +                            }
 +                            if pci_info:
 +                                pci_match_info.update(pci_info)
@@ -1305,7 +1307,7 @@
 +                                    # Multiple matches - need to choose the best one
 +                                    logging.debug("get_nvidia_devices(): Multiple matches for %s" % devid)
 +                                    
-+                                    best_gpu = select_best_gpu_match(matching_gpus, pci_match_info)
++                                    best_gpu = select_best_gpu_match(matching_gpus, pci_match_info, suppress_warnings)
 +                                    device = Device(
 +                                        devid, best_gpu["name"], best_gpu["features"], 
 +                                        best_gpu.get("legacybranch"),
@@ -1356,7 +1358,7 @@
      try:
          import apt_pkg
      except ModuleNotFoundError:
-@@ -338,7 +1352,6 @@ def ubuntu_get_latest_driver_branch(path
+@@ -338,7 +1356,6 @@ def ubuntu_get_latest_driver_branch(path
      apt_pkg.init_system()
      cache = apt_pkg.Cache(None)
      candidates = []
@@ -1364,7 +1366,7 @@
      for package in cache.packages:
          branch = re.search(r"nvidia-driver-([0-9]+)-open", package.name)
          if branch:
-@@ -351,154 +1364,150 @@ def ubuntu_get_latest_driver_branch(path
+@@ -351,154 +1368,150 @@ def ubuntu_get_latest_driver_branch(path
          return None
  
  
@@ -1622,7 +1624,7 @@
      all_support_open = all(hint in (default, proprietary_supported) for hint in hints)
      all_require_closed = all(hint == proprietary_required for hint in hints)
      any_default = any(hint == default for hint in hints)
-@@ -511,11 +1520,9 @@ def get_driver_from_json_hints(devices):
+@@ -511,11 +1524,9 @@ def get_driver_from_json_hints(devices):
          logging.debug("recommend_driver(): all devices require closed")
          return "closed"
      elif any_default:
@@ -1634,7 +1636,7 @@
          logging.debug("recommend_driver(): at least one devices requires closed")
          return "closed"
      else:
-@@ -523,38 +1530,73 @@ def get_driver_from_json_hints(devices):
+@@ -523,38 +1534,74 @@ def get_driver_from_json_hints(devices):
          return None
  
  
@@ -1642,7 +1644,7 @@
 -    """Recommend a driver using the available logic"""
 -    devices = get_nvidia_devices(sys_path, supported_gpus)
 -    print_pretty_gpu_summary(devices)
-+def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False, simulate_gpu=None, mhwd=False):
++def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False, simulate_gpu=None, mhwd=False, suppress_warnings=False):
 +    """Recommend a driver using the available logic
 +    
 +    Args:
@@ -1651,12 +1653,13 @@
 +        use_driver_hints: Whether to use JSON hints (True) or VDPAU logic (False)
 +        simulate_gpu: Simulated GPU ID for testing
 +        mhwd: Whether running in MHWD mode (Manjaro Hardware Detection)
++        suppress_warnings: Whether to suppress multiple match warnings
 +        
 +    Returns:
 +        tuple: (driver_type: str, devices: dict) or (None, None) on failure
 +    """
-+    devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu)
-+    if not mhwd:
++    devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, suppress_warnings)
++    if not mhwd and not suppress_warnings:
 +        print_pretty_gpu_summary(devices)
 +
      if not devices:
@@ -1721,7 +1724,7 @@
      if branch_id:
          candidates = branch_instructions.get("%s-%s" % (distro_id, driver))
      else:
-@@ -568,14 +1610,12 @@ def process_results(driver, distro_id, v
+@@ -568,14 +1615,12 @@ def process_results(driver, distro_id, v
          return False
  
      try:
@@ -1737,7 +1740,7 @@
          latest_branch = ubuntu_get_latest_driver_branch()
          if latest_branch:
              branch_id = latest_branch
-@@ -583,10 +1623,16 @@ def process_results(driver, distro_id, v
+@@ -583,10 +1628,16 @@ def process_results(driver, distro_id, v
              print("Error: failed to get the latest driver branch", file=sys.stderr)
              return False
  
@@ -1755,7 +1758,7 @@
              it += 1
  
      if install:
-@@ -594,12 +1640,13 @@ def process_results(driver, distro_id, v
+@@ -594,12 +1645,13 @@ def process_results(driver, distro_id, v
              "Installing the following package%s for the %s kernel module flavour:"
              % ("s" if len(candidates) > 1 else "", "legacy" if driver == "closed" else "open")
          )
@@ -1770,7 +1773,7 @@
                      file=sys.stderr,
                  )
                  break
-@@ -615,7 +1662,17 @@ def process_results(driver, distro_id, v
+@@ -615,7 +1667,17 @@ def process_results(driver, distro_id, v
  
  
  def install_driver(driver, distro_id, version_id, branch_id=None):
@@ -1789,7 +1792,7 @@
      print(
          "Using the NVIDIA driver implies acceptance of the NVIDIA Software\n"
          'License Agreement, contained in the "LICENSE" file in the\n'
-@@ -625,11 +1682,32 @@ def install_driver(driver, distro_id, ve
+@@ -625,12 +1687,78 @@ def install_driver(driver, distro_id, ve
  
  
  def print_instructions(driver, distro_id, version_id, branch_id=None):
@@ -1807,23 +1810,68 @@
      return process_results(driver, distro_id, version_id, branch_id=branch_id, install=False)
  
  
++# ------------------------------------------------------------
++# Easter Egg Functions
++# ------------------------------------------------------------
++
++_LINUS_FRAMES = [
++    r"( . . )",
++    r"( . . )   |",
++    r"( . . )   | |",
++    r"( I . I )  | |",
++]
++
++def _clear_screen():
++    """Clear terminal screen"""
++    sys.stdout.write("\033[2J\033[H")
++    sys.stdout.flush()
++
++
++def _run_linus_easter_egg():
++    """Run the Linus Torvalds easter egg animation"""
++    # Safety: never show this in non-interactive environments
++    if not sys.stdout.isatty():
++        return 0
++
++    for frame in _LINUS_FRAMES:
++        _clear_screen()
++        print("\n\n   " + frame)
++        time.sleep(0.35)
++
++    time.sleep(0.4)
++    _clear_screen()
++
++    print(r"""
++ ███╗   ██╗██╗   ██╗██╗██████╗ ██╗ █████╗
++ ████╗  ██║██║   ██║██║██╔══██╗██║██╔══██╗
++ ██╔██╗ ██║██║   ██║██║██║  ██║██║███████║
++ ██║╚██╗██║╚██╗ ██╔╝██║██║  ██║██║██╔══██║
++ ██║ ╚████║ ╚████╔╝ ██║██████╔╝██║██║  ██║
++ ╚═╝  ╚═══╝  ╚═══╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═╝
++
++             FUCK YOU!!!
++     — Linus Torvalds
++
++ This assistant exists so your hardware
++ does not become obsolete by JSON.
++
++ Stability > Marketing
++""")
++
++
  def main():
--    parser = argparse.ArgumentParser()
 +    """Main function: parse arguments and coordinate the tool's workflow"""
-+    parser = argparse.ArgumentParser(description="NVIDIA driver selection assistant")
-+    
-+    # Easter egg argument
-+    parser.add_argument(
+     parser = argparse.ArgumentParser()
+     parser.add_argument(
 +        "--linus",
 +        action="store_true",
 +        help="Show a historical reminder about driver policy decisions"
 +    )
-+    
-+    # Original arguments
-     parser.add_argument(
++    parser.add_argument(
          "--install",
          action="store_true",
-@@ -679,10 +1757,35 @@ def main():
+         help="Install the recommended driver",
+@@ -679,10 +1807,34 @@ def main():
          help='Specify a kernel module flavor; "open" and "closed" are accepted values. Useful for testing',
      )
      parser.add_argument(
@@ -1855,11 +1903,10 @@
 +        _run_linus_easter_egg()
 +        return 0
 +
-+    # Original logic continues here...
      needs_install = args.install
      branch_locked = args.branch
      supported_gpus = args.supported_gpus
-@@ -691,12 +1794,15 @@ def main():
+@@ -691,12 +1843,15 @@ def main():
      distro_override = args.distro
      module_override = args.module_flavor
      print_supported_distros = args.list_supported_distros
@@ -1876,7 +1923,7 @@
          exit(0)
  
      if not supported_gpus:
-@@ -705,12 +1811,11 @@ def main():
+@@ -705,12 +1860,11 @@ def main():
          elif os.path.isfile(default_json_path):
              supported_gpus = default_json_path
  
@@ -1890,15 +1937,19 @@
              exit(1)
          else:
              if int_branch < 560:
-@@ -720,14 +1825,52 @@ def main():
+@@ -720,14 +1874,57 @@ def main():
      if args.verbose:
          logging.getLogger().setLevel(logging.DEBUG)
  
 -    driver = recommend_driver(
 -        sys_path=sys_path, supported_gpus=supported_gpus, use_driver_hints=True
++    # Determine if we should suppress warnings (for MHWD or JSON output)
++    suppress_warnings = mhwd or json_output
++    
 +    driver, devices = recommend_driver(
 +        sys_path=sys_path, supported_gpus=supported_gpus, 
-+        use_driver_hints=True, simulate_gpu=simulate_gpu, mhwd=mhwd
++        use_driver_hints=True, simulate_gpu=simulate_gpu, 
++        mhwd=mhwd, suppress_warnings=suppress_warnings
      )
 +    
      if not driver:
@@ -1936,7 +1987,8 @@
 +            "distro_legacy_override": DISTRO_LEGACY_OVERRIDE_BRANCH,
 +            "distro_non_legacy_default": DISTRO_NON_LEGACY_DEFAULT_BRANCH,
 +            "distro_580_legacy_override": DISTRO_580_LEGACY_OVERRIDE_BRANCH,
-+            "nvidia_580_bug_workaround": ENABLE_580_LEGACY_BUG_WORKAROUND,
++            "legacy_openkernel_restriction": ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
++            "architecture_check_enabled": ENABLE_ARCHITECTURE_CHECK,
 +            "devices": device_list
 +        }
 +        print(json.dumps(result, indent=2))
@@ -1945,7 +1997,7 @@
      if module_override:
          driver = module_override.lower()
          if not driver in ("open", "closed"):
-@@ -744,9 +1887,13 @@ def main():
+@@ -744,9 +1941,13 @@ def main():
          system_info = get_distro(os_release_path)
  
      if not system_info:
@@ -1960,10 +2012,10 @@
      if needs_install:
          install_driver(driver, system_info.id, system_info.version_id, branch_locked)
      else:
-@@ -758,4 +1905,4 @@ def main():
+@@ -758,4 +1959,4 @@ def main():
  
  
  if __name__ == "__main__":
 -    main()
-+    sys.exit(main())
++    main()
 \ Nincs új sor a fájl végén
