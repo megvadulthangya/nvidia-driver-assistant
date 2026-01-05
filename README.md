@@ -30,7 +30,7 @@ This patch enhances the official NVIDIA Driver Assistant (`nvidia-driver-assista
 
 For better understanding of the code changes and implementation details, I'm sharing the complete modified Python script. This allows developers and maintainers to examine the full implementation beyond just the patch file.
 
-**Full script location**: `MOD-NDA.py` (in repository root)
+**Full script location**: [`MOD-NDA.py`](./MOD-NDA.py) (in repository root)
 
 This complete script contains:
 - All architecture detection logic
