@@ -26,6 +26,21 @@ This patch enhances the official NVIDIA Driver Assistant (`nvidia-driver-assista
 - **Maxwell Architecture Correction**: Prevents Maxwell GPUs from using 580+ drivers
 - **Backward Compatibility**: Maintains compatibility with existing configurations
 
+## Full Source Code Access
+
+For better understanding of the code changes and implementation details, I'm sharing the complete modified Python script. This allows developers and maintainers to examine the full implementation beyond just the patch file.
+
+**Full script location**: `MOD-NDA.py` (in repository root)
+
+This complete script contains:
+- All architecture detection logic
+- Safety validation mechanisms
+- GPU matching algorithms
+- Distribution-specific override implementations
+- Enhanced logging and debugging features
+
+While the primary distribution method remains the patch file for packaging purposes, the full script is provided for transparency and to facilitate code review and understanding of the complete implementation.
+
 ## Usage
 
 ### Basic Usage
