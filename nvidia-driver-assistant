@@ -89,8 +89,14 @@ instructions = {
     "fedora-open": ["sudo dnf -y install nvidia-open"],
     "azurelinux-closed": ["Not supported"],
     "azurelinux-open": ["sudo tdnf -y install nvidia-open"],
-    "kylin-closed": ["sudo dnf -y module install nvidia-driver:latest-dkms"],
-    "kylin-open": ["sudo dnf -y module install nvidia-driver:open-dkms"],
+    "kylin-closed": {
+        10: ["sudo dnf -y module install nvidia-driver:latest-dkms"],
+        11: ["sudo dnf -y install cuda-drivers"],
+    },
+    "kylin-open": {
+        10: ["sudo dnf -y module install nvidia-driver:open-dkms"],
+        11: ["sudo dnf -y install nvidia-open"],
+    },
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers"],
     "opensuse-open": ["sudo zypper install -y nvidia-open"],
     "sles-closed": ["sudo zypper install -y cuda-drivers"],
@@ -120,8 +126,14 @@ branch_instructions = {
     "fedora-open": ["sudo dnf -y install nvidia-open-BRANCH"],
     "azurelinux-closed": ["Not supported"],
     "azurelinux-open": ["sudo tdnf -y install nvidia-open-BRANCH"],
-    "kylin-closed": ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
-    "kylin-open": ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+    "kylin-closed": {
+        10: ["sudo dnf -y module install nvidia-driver:BRANCH-dkms"],
+        11: ["sudo dnf -y install cuda-drivers-BRANCH"],
+    },
+    "kylin-open": {
+        10: ["sudo dnf -y module install nvidia-driver:BRANCH-open"],
+        11: ["sudo dnf -y install nvidia-open-BRANCH"],
+    },
     "opensuse-closed": ["sudo zypper --verbose install -y cuda-drivers-BRANCH"],
     "opensuse-open": ["sudo zypper install -y nvidia-open-BRANCH"],
     "sles-closed": ["sudo zypper install -y cuda-drivers-BRANCH"],
