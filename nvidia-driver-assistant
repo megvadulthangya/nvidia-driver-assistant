@@ -603,12 +603,27 @@ def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False)
 
 def get_conditional_instructions(distro_id, version_id, instructions_dict):
     """Instructions may depend on the specific distro release"""
+    # Strip non-numeric characters from version_id (e.g., "V11" -> "11")
+    numeric_version = version_id.lstrip(string.ascii_letters).lstrip()
+    if not numeric_version:
+        # If no numeric part, return the first available instruction set
+        return instructions_dict.get(min(instructions_dict.keys()))
+
     versions = []
     for cond in instructions_dict.keys():
         from_ver = float(cond)
-        if float(version_id) >= from_ver:
-            versions.append(from_ver)
-    return instructions_dict.get(max(versions))
+        try:
+            if float(numeric_version) >= from_ver:
+                versions.append(from_ver)
+        except ValueError:
+            # If conversion fails, skip this condition
+            continue
+
+    if versions:
+        return instructions_dict.get(max(versions))
+    else:
+        # If no matching version found, return the first available instruction set
+        return instructions_dict.get(min(instructions_dict.keys()))
 
 
 def process_results(driver, distro_id, version_id, branch_id=None, install=False):
