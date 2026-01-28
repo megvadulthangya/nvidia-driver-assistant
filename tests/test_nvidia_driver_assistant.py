@@ -885,7 +885,7 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
+        driver, legacy_branch, unsupported = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
         self.assertTrue(driver)
         self.assertTrue(driver == "open")
 
@@ -896,7 +896,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        driver = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
+        driver, legacy_branch, unsupported = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
         self.assertTrue(driver)
         self.assertTrue(driver == "closed")
 
@@ -906,7 +906,7 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = import_function(
+        driver, legacy_branch, unsupported = import_function(
             "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
         )
         self.assertTrue(driver)
@@ -919,7 +919,7 @@ class DetectTest(unittest.TestCase):
             "pci", "legacy_gpu_modalias_2", None, ["modalias", legacy_gpu_modalias_2], []
         )
 
-        driver = import_function(
+        driver, legacy_branch, unsupported = import_function(
             "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
         )
         self.assertTrue(driver)
@@ -931,7 +931,7 @@ class DetectTest(unittest.TestCase):
         # Add 1 supported GPU (e.g. 4070 super)
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
-        driver = import_function(
+        driver, legacy_branch, unsupported = import_function(
             "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
         )
         self.assertTrue(driver)
