@@ -63,9 +63,6 @@ DISTRO_NON_LEGACY_DEFAULT_BRANCH = None
 # 2. 580+ legacy branch cards (JSON has "legacybranch": "580.xx" or higher)
 DISTRO_580_LEGACY_OVERRIDE_BRANCH = None
 
-# Old variable - backward compatibility (deprecated)
-DISTRO_LEGACY_OVERRIDE_BRANCH = None
-
 # ===== LEGACY BRANCH OPENKERNEL RESTRICTION =====
 # If True, all legacy branches (71.86.xx to 580.xx) will not use open kernel modules
 ENABLE_LEGACY_OPENKERNEL_RESTRICTION = True
@@ -287,7 +284,6 @@ class Device(object):
         """Determine if this is a laptop/mobile GPU"""
         name_lower = name.lower()
 
-        # Explicit desktop exceptions that should NEVER be marked as mobile
         desktop_exceptions = [
             '750 ti', '1050 ti', '1650 ti', '1660 ti',
             '2060 ti', '2070 ti', '2080 ti', '3060 ti',
@@ -295,12 +291,10 @@ class Device(object):
             '4070 ti', '4080 ti', '4090 ti', 'titan',
             '750', '760', '770', '780', '950', '960', '970', '980',
         ]
-
         for exception in desktop_exceptions:
             if exception in name_lower:
                 return False
 
-        # REAL mobile indicators
         if re.search(r'\d{3,4}m\b', name_lower):
             return True
         if re.search(r'\bmx\d{3}\b', name_lower):
@@ -357,7 +351,6 @@ class Device(object):
                 if pattern in name_upper:
                     return arch
 
-        # Fallback logic
         if "RTX" in name_upper:
             if "50" in name_upper:
                 return "blackwell"
@@ -474,35 +467,8 @@ class Device(object):
 
         logging.debug("Device: has following flags: %s" % (flags))
 
-        # 1. Old variable (backward compatibility)
-        if DISTRO_LEGACY_OVERRIDE_BRANCH:
-            compatible, message = self._check_driver_compatibility(
-                DISTRO_LEGACY_OVERRIDE_BRANCH,
-                legacy_override=True
-            )
-            if compatible:
-                self.legacy_branch = DISTRO_LEGACY_OVERRIDE_BRANCH + ".00"
-                self.driver_hint = proprietary_required
-                logging.info(
-                    "Legacy override (old variable): %s forced to branch %s - %s"
-                    % (self.name, self.legacy_branch, message)
-                )
-                return
-            else:
-                min_driver, max_driver = self._get_supported_range(legacy_override=True)
-                logging.error(
-                    "SAFETY CHECK FAILED for %s (%s): %s",
-                    self.name, self.architecture, message
-                )
-                if AUTO_FALLBACK:
-                    safe_branch = self._get_safe_fallback_branch(legacy_override=True)
-                    self.legacy_branch = safe_branch + ".00"
-                    self.driver_hint = proprietary_required
-                    logging.warning(
-                        "Auto-fallback: %s using safe branch %s (original request: %s)",
-                        self.name, safe_branch, DISTRO_LEGACY_OVERRIDE_BRANCH
-                    )
-                return
+        # Block 1 (deprecated DISTRO_LEGACY_OVERRIDE_BRANCH logic) has been removed.
+        # Proceed directly to modern control variables.
 
         # 2. Non-legacy cards
         if not self.legacy_branch and DISTRO_NON_LEGACY_DEFAULT_BRANCH:
@@ -810,7 +776,18 @@ def is_laptop_system():
 
 
 def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False):
-    """Select the best GPU match from multiple possibilities"""
+    """Select the best GPU match from multiple possibilities
+
+    Selection logic (in order of priority):
+    1. Match by subsystem vendor and device ID (most specific)
+    2. Match by subsystem vendor only
+    3. If simulating, try to match by expected name
+    4. Match laptop GPU with laptop system, desktop GPU with desktop system
+    5. Has legacybranch field (more specific)
+    6. Has more features (more detailed information)
+    7. Name contains fewer "unknown" or generic terms
+    8. Original order (fallback)
+    """
     if len(matching_gpus) == 1:
         return matching_gpus[0]
 
@@ -872,29 +849,41 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
         else:
             desktop_gpus.append(gpu)
 
+    # Filter list based on system type
     if is_laptop_system_val and mobile_gpus:
-        if not suppress_warnings and len(matching_gpus) > 1 and len(mobile_gpus) == 1:
-            show_multiple_match_warning(pci_info.get('device') if pci_info else None, mobile_gpus[0]["name"], all_matching_names)
-        return mobile_gpus[0] if len(mobile_gpus) == 1 else mobile_gpus[0]
+        matching_gpus = mobile_gpus[:]
+        logging.debug("select_best_gpu_match(): Laptop system detected, prioritizing mobile GPUs")
     elif not is_laptop_system_val and desktop_gpus:
-        if not suppress_warnings and len(matching_gpus) > 1 and len(desktop_gpus) == 1:
-            show_multiple_match_warning(pci_info.get('device') if pci_info else None, desktop_gpus[0]["name"], all_matching_names)
-        return desktop_gpus[0] if len(desktop_gpus) == 1 else desktop_gpus[0]
+        matching_gpus = desktop_gpus[:]
+        logging.debug("select_best_gpu_match(): Desktop system detected, prioritizing desktop GPUs")
 
-    # 5. Prefer entries with legacybranch
+    if len(matching_gpus) == 1:
+        selected_gpu = matching_gpus[0]
+        if not suppress_warnings and len(all_matching_names) > 1:
+            show_multiple_match_warning(pci_info.get('device') if pci_info else None,
+                                        selected_gpu["name"], all_matching_names)
+        return selected_gpu
+
+    # 5. Prefer entries with legacybranch (more specific)
     with_legacy = [g for g in matching_gpus if g.get("legacybranch")]
-    if len(with_legacy) == 1:
-        if not suppress_warnings and len(matching_gpus) > 1:
-            show_multiple_match_warning(pci_info.get('device') if pci_info else None, with_legacy[0]["name"], all_matching_names)
-        return with_legacy[0]
+    if with_legacy:
+        matching_gpus = with_legacy
+        if len(matching_gpus) == 1:
+            selected_gpu = matching_gpus[0]
+            if not suppress_warnings and len(all_matching_names) > 1:
+                show_multiple_match_warning(pci_info.get('device') if pci_info else None,
+                                            selected_gpu["name"], all_matching_names)
+            return selected_gpu
 
     # 6. Prefer entries with more features
     max_features = max(len(g.get("features", [])) for g in matching_gpus)
     with_max_features = [g for g in matching_gpus if len(g.get("features", [])) == max_features]
     if len(with_max_features) == 1:
-        if not suppress_warnings and len(matching_gpus) > 1:
-            show_multiple_match_warning(pci_info.get('device') if pci_info else None, with_max_features[0]["name"], all_matching_names)
-        return with_max_features[0]
+        selected_gpu = with_max_features[0]
+        if not suppress_warnings and len(all_matching_names) > 1:
+            show_multiple_match_warning(pci_info.get('device') if pci_info else None,
+                                        selected_gpu["name"], all_matching_names)
+        return selected_gpu
 
     # 7. Name specificity score
     def name_specificity_score(name):
@@ -917,9 +906,11 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
     best_score = max(name_specificity_score(g["name"]) for g in with_max_features)
     best_matches = [g for g in with_max_features if name_specificity_score(g["name"]) == best_score]
 
-    if not suppress_warnings and len(matching_gpus) > 1:
-        show_multiple_match_warning(pci_info.get('device') if pci_info else None, best_matches[0]["name"], all_matching_names)
-    return best_matches[0]
+    selected_gpu = best_matches[0]  # fallback
+    if not suppress_warnings and len(all_matching_names) > 1:
+        show_multiple_match_warning(pci_info.get('device') if pci_info else None,
+                                    selected_gpu["name"], all_matching_names)
+    return selected_gpu
 
 
 def show_multiple_match_warning(device_id, selected_name, all_names):
@@ -1145,7 +1136,10 @@ def get_driver_from_json_hints(devices):
 
 def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
                      simulate_gpu=None, mhwd=False, suppress_warnings=False):
-    """Recommend a driver using the available logic"""
+    """Recommend a driver using the available logic
+
+    Returns (driver_type, devices_dict) or (None, None) on failure.
+    """
     devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, suppress_warnings)
     if not mhwd and not suppress_warnings:
         print_pretty_gpu_summary(devices)
@@ -1441,7 +1435,6 @@ def main():
             "driver": "nvidia",
             "module_flavor": driver,
             "branch": branch_locked,
-            "distro_legacy_override": DISTRO_LEGACY_OVERRIDE_BRANCH,
             "distro_non_legacy_default": DISTRO_NON_LEGACY_DEFAULT_BRANCH,
             "distro_580_legacy_override": DISTRO_580_LEGACY_OVERRIDE_BRANCH,
             "legacy_openkernel_restriction": ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
