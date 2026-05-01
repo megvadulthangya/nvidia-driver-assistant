@@ -8,7 +8,12 @@
 # Original Author:
 #   Alberto Milone <amilone@nvidia.com>
 #
-#    Modifications:
+# Downstream Modifications:
+#     Manjaro Team
+#     - packaging adjustments
+#     - distribution-specific compatibility fixes
+#
+# Further Modifications:
 #   Gábor Gyöngyösi <megvadulthangya@gmail.com>
 #     - refactoring and enhancements
 #
@@ -38,6 +43,7 @@ import argparse
 import string
 import sys
 import subprocess
+import platform
 
 
 default_directory = os.path.dirname(os.path.realpath(__file__))
@@ -171,6 +177,8 @@ supported_distros = [
     "rhel",
     "rocky",
     "ol",
+    "manjaro",
+    "arch",
     "opensuse",
     "sles",
 ]
@@ -206,6 +214,10 @@ instructions = {
     },
     "ubuntu-closed": ["sudo apt-get install -y cuda-drivers"],
     "ubuntu-open": ["sudo apt-get install -y nvidia-open"],
+    "arch-closed": ["sudo pacman -S nvidia-dkms"],
+    "arch-open": ["sudo pacman -S nvidia-open-dkms"],
+    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia"],
+    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-open"],
 }
 
 branch_instructions = {
@@ -239,6 +251,10 @@ branch_instructions = {
     },
     "ubuntu-closed": ["sudo apt-get install -y cuda-drivers-BRANCH"],
     "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
+    "arch-closed": ["Not supported"],
+    "arch-open": ["Not supported"],
+    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia-BRANCHxx"],
+    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-BRANCHxx-open"],
 }
 
 
@@ -258,6 +274,8 @@ class SystemInfo(object):
             self.id = "azurelinux"
         elif self.id in ["rocky", "ol"]:
             self.id = "rhel"
+        elif self.id == "arch" and "manjaro" in self.pretty_name.lower():
+            self.id = "manjaro"
 
         if self.id != self.original_id:
             logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
@@ -1182,6 +1200,34 @@ def ubuntu_get_latest_driver_branch(path="/"):
         return None
 
 
+def manjaro_get_kernel_package():
+    """Get kernel package name for Manjaro (e.g., linux618 from 6.18.xx)"""
+    try:
+        kernel_release = platform.release().split(".")
+        if len(kernel_release) >= 2:
+            return f"linux{kernel_release[0]}{kernel_release[1]}"
+    except Exception as e:
+        logging.debug("Failed to get kernel package name: %s", e)
+    return "linux"
+
+
+def manjaro_get_legacy_branch(devices):
+    """Get legacy branch for Manjaro based on detected devices"""
+    highest_branch = None
+    for dev in devices.values():
+        if dev.legacy_branch:
+            branch_major = dev.legacy_branch.split('.')[0]
+            if highest_branch is None:
+                highest_branch = branch_major
+            else:
+                try:
+                    if int(branch_major) > int(highest_branch):
+                        highest_branch = branch_major
+                except ValueError:
+                    pass
+    return highest_branch
+
+
 def get_conditional_instructions(distro_id, version_id, instructions_dict):
     """Instructions may depend on the specific distro release"""
     numeric_version = version_id.lstrip(string.ascii_letters).lstrip()
@@ -1230,6 +1276,11 @@ def process_results(driver, distro_id, version_id, branch_id=None, install=False
         else:
             print("Error: failed to get the latest driver branch", file=sys.stderr)
             return False
+
+    if distro_id == "manjaro":
+        kernel_package = manjaro_get_kernel_package()
+        if kernel_package:
+            candidates = [line.replace("KERNEL", kernel_package) for line in candidates]
 
     if branch_id:
         it = 0
@@ -1335,6 +1386,12 @@ def main():
         help="Specify a simulated gpu; Useful for testing",
     )
     parser.add_argument(
+        "--mhwd",
+        action="store_true",
+        help='Signal mhwd to use "open" or "closed" driver',
+        default=False,
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output decision as JSON (for installer / scripting)",
@@ -1353,6 +1410,7 @@ def main():
     distro_override = args.distro
     module_override = args.module_flavor
     print_supported_distros = args.list_supported_distros
+    mhwd = args.mhwd
     simulate_gpu = args.simulate_gpu
     json_output = args.json
     system_info = None
@@ -1383,7 +1441,7 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    suppress_warnings = json_output
+    suppress_warnings = mhwd or json_output
     driver, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
@@ -1396,6 +1454,10 @@ def main():
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
     logging.debug("Recommended driver: %s" % driver)
+
+    if mhwd:
+        print(driver)
+        exit(0)
 
     if json_output:
         device_list = []
@@ -1446,6 +1508,9 @@ def main():
     if not system_info:
         exit(1)
     logging.debug("OS detected: %s" % system_info.id)
+
+    if not branch_locked and system_info.id == "manjaro" and devices:
+        branch_locked = manjaro_get_legacy_branch(devices)
 
     if needs_install:
         install_driver(driver, system_info.id, system_info.version_id, branch_locked)
