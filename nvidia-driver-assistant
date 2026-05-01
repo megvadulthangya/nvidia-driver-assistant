@@ -103,7 +103,7 @@ REQUIRE_CONFIRMATION = False
 AUTO_FALLBACK = True
 MAX_BRANCH_MISMATCH = 0
 
-# Enhanced simulated GPU data
+# Enhanced simulated GPU data with more detailed information
 simulated_gpus = {
     "545": {
         "modalias": "pci:v000010DEd00001241sv000010DEsd000018FEbc03sc00i00",
@@ -466,9 +466,6 @@ class Device(object):
                 flags.append(feat)
 
         logging.debug("Device: has following flags: %s" % (flags))
-
-        # Block 1 (deprecated DISTRO_LEGACY_OVERRIDE_BRANCH logic) has been removed.
-        # Proceed directly to modern control variables.
 
         # 2. Non-legacy cards
         if not self.legacy_branch and DISTRO_NON_LEGACY_DEFAULT_BRANCH:
@@ -849,7 +846,6 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
         else:
             desktop_gpus.append(gpu)
 
-    # Filter list based on system type
     if is_laptop_system_val and mobile_gpus:
         matching_gpus = mobile_gpus[:]
         logging.debug("select_best_gpu_match(): Laptop system detected, prioritizing mobile GPUs")
@@ -906,7 +902,7 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
     best_score = max(name_specificity_score(g["name"]) for g in with_max_features)
     best_matches = [g for g in with_max_features if name_specificity_score(g["name"]) == best_score]
 
-    selected_gpu = best_matches[0]  # fallback
+    selected_gpu = best_matches[0]
     if not suppress_warnings and len(all_matching_names) > 1:
         show_multiple_match_warning(pci_info.get('device') if pci_info else None,
                                     selected_gpu["name"], all_matching_names)
@@ -1135,13 +1131,13 @@ def get_driver_from_json_hints(devices):
 
 
 def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
-                     simulate_gpu=None, mhwd=False, suppress_warnings=False):
+                     simulate_gpu=None, suppress_warnings=False):
     """Recommend a driver using the available logic
 
     Returns (driver_type, devices_dict) or (None, None) on failure.
     """
     devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, suppress_warnings)
-    if not mhwd and not suppress_warnings:
+    if not suppress_warnings:
         print_pretty_gpu_summary(devices)
 
     if not devices:
@@ -1339,15 +1335,9 @@ def main():
         help="Specify a simulated gpu; Useful for testing",
     )
     parser.add_argument(
-        "--mhwd",
-        action="store_true",
-        help='Signal mhwd to use "open" or "closed" driver',
-        default=False,
-    )
-    parser.add_argument(
         "--json",
         action="store_true",
-        help="Output decision as JSON (for mhwd / installer)",
+        help="Output decision as JSON (for installer / scripting)",
         default=False,
     )
     parser.add_argument(
@@ -1363,7 +1353,6 @@ def main():
     distro_override = args.distro
     module_override = args.module_flavor
     print_supported_distros = args.list_supported_distros
-    mhwd = args.mhwd
     simulate_gpu = args.simulate_gpu
     json_output = args.json
     system_info = None
@@ -1394,13 +1383,12 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    suppress_warnings = mhwd or json_output
+    suppress_warnings = json_output
     driver, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
         use_driver_hints=True,
         simulate_gpu=simulate_gpu,
-        mhwd=mhwd,
         suppress_warnings=suppress_warnings,
     )
 
@@ -1408,10 +1396,6 @@ def main():
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
     logging.debug("Recommended driver: %s" % driver)
-
-    if mhwd:
-        print(driver)
-        exit(0)
 
     if json_output:
         device_list = []
