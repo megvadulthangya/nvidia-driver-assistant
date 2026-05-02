@@ -109,6 +109,9 @@ REQUIRE_CONFIRMATION = False
 AUTO_FALLBACK = True
 MAX_BRANCH_MISMATCH = 0
 
+# Minimum legacy driver branch that is still supported (NVIDIA 0.51)
+min_supported_legacy_branch = 580
+
 # Enhanced simulated GPU data with more detailed information
 simulated_gpus = {
     "545": {
@@ -288,6 +291,7 @@ class Device(object):
         self.name = name
         self.features = features
         self.vdpau_feat = ""
+        self.original_legacy_branch = legacy_branch  # preserve original JSON legacybranch
         self.legacy_branch = legacy_branch
         self.driver_hint = ""
         self.architecture = "unknown"
@@ -340,6 +344,20 @@ class Device(object):
         """Determine GPU architecture from device name"""
         self.architecture = self._get_architecture_from_device_name(self.name)
         logging.debug("Device architecture determined: %s -> %s" % (self.name, self.architecture))
+
+        # ARCHITECTURE VS 580: If architecture is modern but JSON says legacy (<580), prioritize architecture
+        if self.architecture in OPEN_CAPABLE_ARCHS and self.original_legacy_branch:
+            try:
+                legacy_major = int(self.original_legacy_branch.split('.')[0])
+                if legacy_major < min_supported_legacy_branch:
+                    logging.warning(
+                        "Architecture override: %s (%s) marked as legacy branch %s, but architecture %s suggests modern card. Ignoring legacy flag.",
+                        self.name, self.id, self.original_legacy_branch, self.architecture
+                    )
+                    self.original_legacy_branch = None
+                    self.legacy_branch = None
+            except (ValueError, IndexError):
+                pass
 
     def _get_architecture_from_device_name(self, device_name):
         """Extract architecture from GPU device name"""
@@ -447,9 +465,9 @@ class Device(object):
     def _get_supported_range(self, legacy_override=False):
         min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
 
-        if self.legacy_branch:
+        if self.original_legacy_branch:
             try:
-                max_driver = self.legacy_branch.split('.')[0]
+                max_driver = self.original_legacy_branch.split('.')[0]
                 int(max_driver)
                 return min_driver, max_driver
             except (ValueError, IndexError):
@@ -462,9 +480,9 @@ class Device(object):
     def _get_safe_fallback_branch(self, legacy_override=False):
         min_driver, max_driver = self._get_supported_range(legacy_override)
 
-        if self.legacy_branch:
+        if self.original_legacy_branch:
             try:
-                legacy_major = int(self.legacy_branch.split('.')[0])
+                legacy_major = int(self.original_legacy_branch.split('.')[0])
                 min_required = int(ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390"))
                 if legacy_major >= min_required:
                     return str(legacy_major)
@@ -485,8 +503,8 @@ class Device(object):
 
         logging.debug("Device: has following flags: %s" % (flags))
 
-        # 2. Non-legacy cards
-        if not self.legacy_branch and DISTRO_NON_LEGACY_DEFAULT_BRANCH:
+        # 1. Non-legacy cards
+        if not self.original_legacy_branch and DISTRO_NON_LEGACY_DEFAULT_BRANCH:
             compatible, message = self._check_driver_compatibility(
                 DISTRO_NON_LEGACY_DEFAULT_BRANCH,
                 legacy_override=False
@@ -515,9 +533,9 @@ class Device(object):
                     )
                 return
 
-        # 3. 580+ legacy cards
-        if self.legacy_branch and DISTRO_580_LEGACY_OVERRIDE_BRANCH:
-            legacy_major = self.legacy_branch.split('.')[0]
+        # 2. 580+ legacy cards
+        if self.original_legacy_branch and DISTRO_580_LEGACY_OVERRIDE_BRANCH:
+            legacy_major = self.original_legacy_branch.split('.')[0]
             try:
                 legacy_major_int = int(legacy_major)
                 if legacy_major_int >= 580:
@@ -565,22 +583,22 @@ class Device(object):
             except ValueError:
                 pass
 
-        # 4. Legacy branch openkernel restriction
-        if self.legacy_branch and ENABLE_LEGACY_OPENKERNEL_RESTRICTION:
-            legacy_major = self.legacy_branch.split('.')[0]
+        # 3. Legacy branch openkernel restriction
+        if self.original_legacy_branch and ENABLE_LEGACY_OPENKERNEL_RESTRICTION:
+            legacy_major = self.original_legacy_branch.split('.')[0]
             try:
                 legacy_major_int = int(legacy_major)
                 if legacy_major_int <= 580:
                     self.driver_hint = proprietary_required
                     logging.debug(
                         "Legacy branch restriction: %s with legacy branch %s forced to proprietary",
-                        self.name, self.legacy_branch
+                        self.name, self.original_legacy_branch
                     )
                     return
             except ValueError:
                 pass
 
-        # 5. Architecture-based check
+        # 4. Architecture-based check
         if ENABLE_ARCHITECTURE_CHECK:
             if self.architecture in OPEN_CAPABLE_ARCHS:
                 if open_supported in flags:
@@ -591,7 +609,7 @@ class Device(object):
                 self.driver_hint = proprietary_required
             return
 
-        # 6. Normal logic (JSON-based feature flags)
+        # 5. Normal logic (JSON-based feature flags)
         if not flags or open_supported not in flags:
             self.driver_hint = proprietary_required
         elif proprietary_supported in flags:
@@ -1148,27 +1166,78 @@ def get_driver_from_json_hints(devices):
         return None
 
 
+def check_legacy_devices(devices):
+    """Check for legacy devices and return legacy branch info (NVIDIA 0.51 logic).
+
+    Returns a tuple: (legacy_branch, unsupported_devices)
+    - legacy_branch: The legacy branch to use (e.g., "580"), or None if no legacy devices
+    - unsupported_devices: List of devices with unsupported legacy branches
+    """
+    legacy_branch = None
+    unsupported_devices = []
+
+    for dev in devices.values():
+        # Use original_legacy_branch from JSON, not modified by overrides
+        if dev.original_legacy_branch:
+            branch_major = dev.original_legacy_branch.split(".")[0]
+            try:
+                branch_int = int(branch_major)
+                if branch_int >= min_supported_legacy_branch:
+                    if legacy_branch and legacy_branch != branch_major:
+                        logging.warning(
+                            "Multiple legacy branches detected: %s and %s"
+                            % (legacy_branch, branch_major)
+                        )
+                        legacy_branch = max(legacy_branch, branch_major, key=int)
+                    else:
+                        legacy_branch = branch_major
+                    logging.debug(
+                        "check_legacy_devices(): device %s (%s) requires supported legacy branch %s"
+                        % (dev.id, dev.name, branch_major)
+                    )
+                else:
+                    unsupported_devices.append(dev)
+                    logging.debug(
+                        "check_legacy_devices(): device %s (%s) requires unsupported legacy branch %s"
+                        % (dev.id, dev.name, branch_major)
+                    )
+            except ValueError:
+                # Invalid legacy branch format, treat as unsupported
+                unsupported_devices.append(dev)
+                logging.debug(
+                    "check_legacy_devices(): device %s (%s) has invalid legacy branch format %s"
+                    % (dev.id, dev.name, branch_major)
+                )
+
+    return legacy_branch, unsupported_devices
+
+
 def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
                      simulate_gpu=None, suppress_warnings=False):
-    """Recommend a driver using the available logic
+    """Recommend a driver using the available logic.
 
-    Returns (driver_type, devices_dict) or (None, None) on failure.
+    Returns a 4-tuple: (driver, legacy_branch, unsupported_devices, devices_dict)
     """
     devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, suppress_warnings)
     if not suppress_warnings:
         print_pretty_gpu_summary(devices)
 
     if not devices:
-        return None, None
+        return None, None, [], None
+
+    # Check legacy devices first (NVIDIA 0.51)
+    legacy_branch, unsupported_devices = check_legacy_devices(devices)
 
     logging.debug("recommend_driver(): Do device IDs support the open driver?")
 
     if use_driver_hints:
         logging.debug("recommend_driver(): using json logic")
-        return get_driver_from_json_hints(devices), devices
+        driver = get_driver_from_json_hints(devices)
     else:
         logging.debug("recommend_driver(): using VDPAU logic")
-        return get_driver_from_vdpau_feat(devices), devices
+        driver = get_driver_from_vdpau_feat(devices)
+
+    return driver, legacy_branch, unsupported_devices, devices
 
 
 def ubuntu_get_latest_driver_branch(path="/"):
@@ -1215,8 +1284,8 @@ def manjaro_get_legacy_branch(devices):
     """Get legacy branch for Manjaro based on detected devices"""
     highest_branch = None
     for dev in devices.values():
-        if dev.legacy_branch:
-            branch_major = dev.legacy_branch.split('.')[0]
+        if dev.original_legacy_branch:
+            branch_major = dev.original_legacy_branch.split('.')[0]
             if highest_branch is None:
                 highest_branch = branch_major
             else:
@@ -1229,7 +1298,7 @@ def manjaro_get_legacy_branch(devices):
 
 
 def get_conditional_instructions(distro_id, version_id, instructions_dict):
-    """Instructions may depend on the specific distro release"""
+    """Instructions may depend on the specific distro release (robust version parsing)"""
     numeric_version = version_id.lstrip(string.ascii_letters).lstrip()
     if not numeric_version:
         return instructions_dict.get(min(instructions_dict.keys()))
@@ -1442,7 +1511,7 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     suppress_warnings = mhwd or json_output
-    driver, devices = recommend_driver(
+    driver, legacy_branch, unsupported_devices, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
         use_driver_hints=True,
@@ -1453,6 +1522,30 @@ def main():
     if not driver:
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
+
+    # Handle unsupported legacy devices (NVIDIA 0.51)
+    if unsupported_devices:
+        print(
+            "\nError: The following GPU(s) require a legacy driver that is no longer supported:",
+            file=sys.stderr,
+        )
+        for dev in unsupported_devices:
+            print(
+                "  %s (%s) - requires legacy branch %s" % (dev.name, dev.id, dev.original_legacy_branch),
+                file=sys.stderr,
+            )
+        print(
+            "\nThese GPUs are not supported by current NVIDIA drivers. "
+            "Please consider upgrading your hardware.",
+            file=sys.stderr,
+        )
+        exit(1)
+
+    # Use detected legacy branch if no branch was specified (NVIDIA 0.51)
+    if legacy_branch and not branch_locked:
+        print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch)
+        branch_locked = legacy_branch
+
     logging.debug("Recommended driver: %s" % driver)
 
     if mhwd:
@@ -1468,12 +1561,12 @@ def main():
                 "name": dev.name,
                 "architecture": dev.architecture,
                 "is_laptop": dev.is_laptop_gpu,
-                "is_legacy": bool(dev.legacy_branch),
+                "is_legacy": bool(dev.original_legacy_branch),
                 "subsystem_vendor": dev.subvendorid,
                 "subsystem_device": dev.subdevid,
                 "supported_min_driver": min_driver,
                 "supported_max_driver": max_driver,
-                "legacy": dev.legacy_branch if dev.legacy_branch else None
+                "legacy": dev.original_legacy_branch if dev.original_legacy_branch else None
             }
             device_list.append(device_info)
 
@@ -1509,8 +1602,11 @@ def main():
         exit(1)
     logging.debug("OS detected: %s" % system_info.id)
 
+    # For Manjaro, if no branch locked yet, try to get from devices (fallback)
     if not branch_locked and system_info.id == "manjaro" and devices:
-        branch_locked = manjaro_get_legacy_branch(devices)
+        manjaro_branch = manjaro_get_legacy_branch(devices)
+        if manjaro_branch:
+            branch_locked = manjaro_branch
 
     if needs_install:
         install_driver(driver, system_info.id, system_info.version_id, branch_locked)
