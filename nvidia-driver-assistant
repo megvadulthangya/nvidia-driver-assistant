@@ -374,77 +374,153 @@ class Device(object):
                 pass
 
     def _get_architecture_from_device_name(self, device_name):
-        """Extract architecture from GPU device name"""
+        """Extract architecture from GPU device name using strict regex boundaries"""
         if not device_name:
             return "unknown"
 
         name_upper = device_name.upper()
 
         arch_patterns = {
-            "blackwell": ["BLACKWELL", "GB", "RTX 50", "5090", "5080", "5070", "5060", "5050"],
-            "ada": ["ADA", "AD", "RTX 40", "4090", "4080", "4070", "4060", "4050"],
-            "ampere": ["AMPERE", "GA", "RTX 30", "3090", "3080", "3070", "3060", "3050"],
-            "turing": ["TURING", "TU", "RTX 20", "GTX 16", "2080", "2070", "2060", "1660", "1650"],
-            "volta": ["VOLTA", "GV", "TITAN V"],
-            "pascal": ["PASCAL", "GP", "GTX 10", "1080", "1070", "1060", "1050", "P100", "P40", "P4"],
-            "maxwell": ["MAXWELL", "GM", "GTX 9", "GTX 7", "980", "970", "960", "750", "950", "M40", "M60", "M6", "M4"],
-            "kepler": ["KEPLER", "GK", "GTX 6", "GTX 7", "680", "670", "660", "650", "K80", "K40", "K20", "K10"],
-            "fermi": ["FERMI", "GF", "GTX 5", "580", "570", "560", "550", "540", "M2050", "M2070", "M2075"],
-            "tesla2": ["TESLA", "GT200", "GTX 200", "GTX 280", "GTX 285", "GTX 260", "C2050", "C2075", "M1060"],
-            "tesla1": ["TESLA", "G80", "G90", "G92", "G94", "G96", "G98", "GTX 8", "GTX 9", "8800", "9800"],
-            "curie": ["CURIE", "G70", "G71", "G72", "G73", "GeForce 7", "7300", "7600", "7900", "7800", "7950"],
-            "pre-curie": ["NV", "GeForce 6", "GeForce FX", "GeForce 4", "GeForce 3", "GeForce 2", "6200", "6800", "FX"]
+            "blackwell": [
+                r'\bBLACKWELL\b',
+                r'\bGB\d',                      # GB202 etc.
+                r'\bRTX 50\d',                  # RTX 50xx
+                r'\b5090\b', r'\b5080\b', r'\b5070\b', r'\b5060\b', r'\b5050\b'
+            ],
+            "ada": [
+                r'\bADA\b',
+                r'\bAD\d|\bAD\b',                # AD102 or standalone AD
+                r'\bRTX 40\d',
+                r'\b4090\b', r'\b4080\b', r'\b4070\b', r'\b4060\b', r'\b4050\b'
+            ],
+            "ampere": [
+                r'\bAMPERE\b',
+                r'\bGA\d|\bGA\b',
+                r'\bRTX 30\d',
+                r'\b3090\b', r'\b3080\b', r'\b3070\b', r'\b3060\b', r'\b3050\b'
+            ],
+            "turing": [
+                r'\bTURING\b',
+                r'\bTU\d|\bTU\b',
+                r'\bRTX 20\d',
+                r'\bGTX 16\d',
+                r'\b2080\b', r'\b2070\b', r'\b2060\b', r'\b1660\b', r'\b1650\b'
+            ],
+            "volta": [
+                r'\bVOLTA\b',
+                r'\bGV\d|\bGV\b',
+                r'\bTITAN V\b'
+            ],
+            "pascal": [
+                r'\bPASCAL\b',
+                r'\bGP\d|\bGP\b',
+                r'\bGTX 10\d',
+                r'\b1080\b', r'\b1070\b', r'\b1060\b', r'\b1050\b',
+                r'\bP100\b', r'\bP40\b', r'\bP4\b'
+            ],
+            "maxwell": [
+                r'\bMAXWELL\b',
+                r'\bGM\d|\bGM\b',
+                r'\bGTX 9\d',
+                r'\bGTX 750\b', r'\bGTX 745\b', r'\bGTX 730\b',
+                r'\b980\b', r'\b970\b', r'\b960\b', r'\b750\b', r'\b950\b',
+                r'\bM40\b', r'\bM60\b', r'\bM6\b', r'\bM4\b'
+            ],
+            "kepler": [
+                r'\bKEPLER\b',
+                r'\bGK\d|\bGK\b',
+                r'\bGTX 6\d',
+                r'\bGTX 780\b', r'\bGTX 770\b', r'\bGTX 760\b',
+                r'\b680\b', r'\b670\b', r'\b660\b', r'\b650\b',
+                r'\bK80\b', r'\bK40\b', r'\bK20\b', r'\bK10\b'
+            ],
+            "fermi": [
+                r'\bFERMI\b',
+                r'\bGF\d|\bGF\b',
+                r'\bGTX 5\d',
+                r'\b580\b', r'\b570\b', r'\b560\b', r'\b550\b', r'\b540\b',
+                r'\bM2050\b', r'\bM2070\b', r'\bM2075\b'
+            ],
+            "tesla2": [
+                r'\bTESLA\b',
+                r'\bGT200\b',
+                r'\bGTX 200\b', r'\bGTX 280\b', r'\bGTX 285\b', r'\bGTX 260\b',
+                r'\bC2050\b', r'\bC2075\b', r'\bM1060\b'
+            ],
+            "tesla1": [
+                r'\bTESLA\b',
+                r'\bG80\b', r'\bG90\b', r'\bG92\b', r'\bG94\b', r'\bG96\b', r'\bG98\b',
+                r'\bGTX 8\d', r'\bGTX 9\d',
+                r'\b8800\b', r'\b9800\b'
+            ],
+            "curie": [
+                r'\bCURIE\b',
+                r'\bG70\b', r'\bG71\b', r'\bG72\b', r'\bG73\b',
+                r'\bGeForce 7\d',
+                r'\b7300\b', r'\b7600\b', r'\b7900\b', r'\b7800\b', r'\b7950\b'
+            ],
+            "pre-curie": [
+                r'\bNV\d',
+                r'\bGeForce 6\d',
+                r'\bGeForce FX\b',
+                r'\bGeForce 4\b',
+                r'\bGeForce 3\b',
+                r'\bGeForce 2\b',
+                r'\b6200\b', r'\b6800\b',
+                r'\bFX\b'
+            ],
         }
 
         for arch, patterns in arch_patterns.items():
             for pattern in patterns:
-                if pattern in name_upper:
+                if re.search(pattern, name_upper, re.IGNORECASE):
                     return arch
 
-        if "RTX" in name_upper:
-            if "50" in name_upper:
+        # Fallback using regex with word boundaries
+        if re.search(r'\bRTX\b', name_upper):
+            if re.search(r'\b50\d\d\b', name_upper):
                 return "blackwell"
-            elif "40" in name_upper:
+            if re.search(r'\b40\d\d\b', name_upper):
                 return "ada"
-            elif "30" in name_upper:
+            if re.search(r'\b30\d\d\b', name_upper):
                 return "ampere"
-            elif "20" in name_upper:
+            if re.search(r'\b20\d\d\b', name_upper):
                 return "turing"
 
-        if "GTX" in name_upper or "GEFORCE" in name_upper:
-            if "16" in name_upper:
+        if re.search(r'\bGTX\b', name_upper) or re.search(r'\bGEFORCE\b', name_upper):
+            if re.search(r'\b16\d\d\b', name_upper):
                 return "turing"
-            elif "10" in name_upper:
+            if re.search(r'\b10\d\d\b', name_upper):
                 return "pascal"
-            elif "9" in name_upper:
+            if re.search(r'\b9\d\d\b', name_upper):
                 return "maxwell"
-            elif "7" in name_upper or "6" in name_upper:
-                if any(x in name_upper for x in ["750", "745", "730"]):
+            if re.search(r'\b7\d\d\b', name_upper):
+                if re.search(r'\b750\b', name_upper) or re.search(r'\b745\b', name_upper) or re.search(r'\b730\b', name_upper):
                     return "maxwell"
-                elif "7" in name_upper:
-                    return "kepler"
                 else:
                     return "kepler"
-            elif "5" in name_upper:
+            if re.search(r'\b6\d\d\b', name_upper):
+                return "kepler"
+            if re.search(r'\b5\d\d\b', name_upper):
                 return "fermi"
-            elif "4" in name_upper or "3" in name_upper or "2" in name_upper:
+            if re.search(r'\b[432]\d\d\b', name_upper):
                 return "pre-curie"
 
-        if "QUADRO" in name_upper:
-            if "RTX" in name_upper:
-                if "40" in name_upper or "A" in name_upper:
+        if re.search(r'\bQUADRO\b', name_upper):
+            if re.search(r'\bRTX\b', name_upper):
+                if re.search(r'\b40\d\d\b', name_upper) or re.search(r'\bA\d', name_upper):
                     return "ada"
-                elif "30" in name_upper:
+                if re.search(r'\b30\d\d\b', name_upper):
                     return "ampere"
-                elif "20" in name_upper:
+                if re.search(r'\b20\d\d\b', name_upper):
                     return "turing"
-            elif any(x in name_upper for x in ["P", "GP100", "GP102"]):
+            if re.search(r'\bP\d{3,4}\b', name_upper) or re.search(r'\bGP100\b', name_upper) or re.search(r'\bGP102\b', name_upper):
                 return "pascal"
-            elif any(x in name_upper for x in ["M", "GM200", "GM204"]):
+            if re.search(r'\bM\d{3,4}\b', name_upper) or re.search(r'\bGM200\b', name_upper) or re.search(r'\bGM204\b', name_upper):
                 return "maxwell"
-            elif any(x in name_upper for x in ["K", "GK"]):
+            if re.search(r'\bK\d{3,4}\b', name_upper) or re.search(r'\bGK', name_upper):
                 return "kepler"
-            elif any(x in name_upper for x in ["5000", "6000"]):
+            if re.search(r'\b[56]000\b', name_upper):
                 return "fermi"
 
         return "unknown"
