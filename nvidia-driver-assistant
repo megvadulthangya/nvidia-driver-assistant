@@ -1088,7 +1088,10 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, suppress_war
             # Build lookup by device ID
             gpu_map = {}
             for gpu in gpus:
-                devid = gpu["devid"]
+                devid = gpu.get("devid")
+                if not devid:
+                    logging.warning("Skipping GPU entry missing 'devid' key or empty: %s" % (json.dumps(gpu) if gpu else "None"))
+                    continue
                 if devid not in gpu_map:
                     gpu_map[devid] = []
                 gpu_entry = gpu.copy()
