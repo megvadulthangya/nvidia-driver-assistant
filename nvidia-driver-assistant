@@ -1171,7 +1171,7 @@ def check_legacy_devices(devices):
 
     Returns a tuple: (legacy_branch, unsupported_devices)
     - legacy_branch: The legacy branch to use (e.g., "580"), or None if no legacy devices
-    - unsupported_devices: List of devices with unsupported legacy branches
+    - unsupported_devices: List of devices with unsupported legacy branches (< min_supported_legacy_branch)
     """
     legacy_branch = None
     unsupported_devices = []
@@ -1523,7 +1523,35 @@ def main():
         print("Error: Failed to find a suitable driver", file=sys.stderr)
         exit(1)
 
-    # Handle unsupported legacy devices (NVIDIA 0.51)
+    # Determine distribution (needed for Manjaro/Arch legacy override)
+    if distro_override:
+        system_info = override_distro(distro_override.lower())
+        print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id))
+    else:
+        system_info = get_distro(os_release_path)
+
+    if not system_info:
+        exit(1)
+
+    # For Manjaro/Arch, allow legacy branches below 580 (community-supported)
+    if system_info.id in ["manjaro", "arch"] and unsupported_devices:
+        print("\nNote: NVIDIA officially considers these legacy branches unsupported, but they are available via Manjaro/Arch repositories.", file=sys.stderr)
+        # Collect all legacy branches from unsupported devices and merge into legacy_branch
+        for dev in unsupported_devices:
+            if dev.original_legacy_branch:
+                branch_major = dev.original_legacy_branch.split('.')[0]
+                if legacy_branch is None:
+                    legacy_branch = branch_major
+                else:
+                    try:
+                        if int(branch_major) > int(legacy_branch):
+                            legacy_branch = branch_major
+                    except ValueError:
+                        pass
+        # Clear unsupported devices to avoid exit
+        unsupported_devices = []
+
+    # Handle unsupported legacy devices (for all other distros)
     if unsupported_devices:
         print(
             "\nError: The following GPU(s) require a legacy driver that is no longer supported:",
@@ -1592,14 +1620,6 @@ def main():
             )
             exit(1)
 
-    if distro_override:
-        system_info = override_distro(distro_override.lower())
-        print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id))
-    else:
-        system_info = get_distro(os_release_path)
-
-    if not system_info:
-        exit(1)
     logging.debug("OS detected: %s" % system_info.id)
 
     # For Manjaro, if no branch locked yet, try to get from devices (fallback)
