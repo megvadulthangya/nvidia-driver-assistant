@@ -424,7 +424,8 @@ class Device(object):
                 r'\bGTX 9\d',
                 r'\bGTX 750\b', r'\bGTX 745\b', r'\bGTX 730\b',
                 r'\b980\b', r'\b970\b', r'\b960\b', r'\b750\b', r'\b950\b',
-                r'\bM40\b', r'\bM60\b', r'\bM6\b', r'\bM4\b'
+                r'\bM40\b', r'\bM60\b', r'\bM6\b', r'\bM4\b',
+                r'\b800M\b', r'\bGM\b'
             ],
             "kepler": [
                 r'\bKEPLER\b',
@@ -432,14 +433,16 @@ class Device(object):
                 r'\bGTX 6\d',
                 r'\bGTX 780\b', r'\bGTX 770\b', r'\bGTX 760\b',
                 r'\b680\b', r'\b670\b', r'\b660\b', r'\b650\b',
-                r'\bK80\b', r'\bK40\b', r'\bK20\b', r'\bK10\b'
+                r'\bK80\b', r'\bK40\b', r'\bK20\b', r'\bK10\b',
+                r'\b740A\b', r'\b610M\b', r'\bGK\b'
             ],
             "fermi": [
                 r'\bFERMI\b',
                 r'\bGF\d|\bGF\b',
                 r'\bGTX 5\d',
                 r'\b580\b', r'\b570\b', r'\b560\b', r'\b550\b', r'\b540\b',
-                r'\bM2050\b', r'\bM2070\b', r'\bM2075\b'
+                r'\bM2050\b', r'\bM2070\b', r'\bM2075\b',
+                r'\b800A\b', r'\b705A\b', r'\b610\b', r'\bGF\b'
             ],
             "tesla2": [
                 r'\bTESLA\b',
@@ -451,7 +454,8 @@ class Device(object):
                 r'\bTESLA\b',
                 r'\bG80\b', r'\bG90\b', r'\bG92\b', r'\bG94\b', r'\bG96\b', r'\bG98\b',
                 r'\bGTX 8\d', r'\bGTX 9\d',
-                r'\b8800\b', r'\b9800\b'
+                r'\b8800\b', r'\b9800\b',
+                r'\bNVS\b', r'\b290\b', r'\bG84\b', r'\bG86\b'
             ],
             "curie": [
                 r'\bCURIE\b',
