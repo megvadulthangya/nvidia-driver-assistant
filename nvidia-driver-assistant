@@ -887,6 +887,7 @@ def is_laptop_system():
                 ["dmidecode", "-s", "chassis-type"],
                 capture_output=True,
                 text=True,
+                errors='replace',
                 timeout=2
             )
             if result.returncode == 0:
@@ -1075,6 +1076,19 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, suppress_war
         modaliases = get_system_modaliases(sys_path)
 
     json_path = supported_gpus
+    if json_path is None:
+        logging.error("supported_gpus path is None")
+        return None
+
+    try:
+        file_size = os.path.getsize(json_path)
+        if file_size > 10 * 1024 * 1024:  # 10 MB limit
+            logging.error("supported_gpus JSON file too large: %d bytes (limit 10MB)", file_size)
+            return None
+    except OSError as e:
+        logging.error("failed to get size of %s: %s", json_path, e)
+        return None
+
     devices = {}
 
     try:
@@ -1797,7 +1811,9 @@ def main():
             branch_locked = manjaro_branch
 
     if needs_install:
-        install_driver(driver, system_info.id, system_info.version_id, branch_locked)
+        success = install_driver(driver, system_info.id, system_info.version_id, branch_locked)
+        if not success:
+            sys.exit(1)
     else:
         exit(
             0
