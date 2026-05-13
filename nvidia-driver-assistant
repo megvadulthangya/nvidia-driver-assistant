@@ -716,8 +716,15 @@ class Device(object):
                 logging.warning("device %s support level not flagged as %s" % (self.id, open_supported))
 
         if not self.driver_hint:
-            if self.legacy_branch and self.legacy_branch.split(".")[0] <= "470":
+            if self.legacy_branch and int(self.legacy_branch.split(".")[0]) <= 470:
                 self.driver_hint = proprietary_required
+
+
+def _safe_branch_int(branch_str, default=-1):
+    try:
+        return int(branch_str.split('.')[0])
+    except (ValueError, IndexError):
+        return default
 
 
 def get_distro(path=None):
@@ -1649,15 +1656,17 @@ def main():
     if system_info.id == "manjaro" and unsupported_devices:
         ultra_devices = [
             dev for dev in unsupported_devices
-            if dev.original_legacy_branch and int(dev.original_legacy_branch.split('.')[0]) < 390
+            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < 390
         ]
         if ultra_devices:
             print("\nUltra-legacy GPU(s) detected (branch < 390):")
             for dev in ultra_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
-            branches = sorted(set(
-                dev.original_legacy_branch.split('.')[0] for dev in ultra_devices
-            ))
+            branches = sorted({
+                _safe_branch_int(dev.original_legacy_branch)
+                for dev in ultra_devices
+                if _safe_branch_int(dev.original_legacy_branch) >= 0
+            })
             print("\nThese versions are no longer in official Manjaro repositories.")
             print("You can find them in the AUR (Arch User Repository) as:")
             for branch in branches:
@@ -1690,15 +1699,17 @@ def main():
     elif system_info.id == "arch" and unsupported_devices:
         ultra_devices = [
             dev for dev in unsupported_devices
-            if dev.original_legacy_branch and int(dev.original_legacy_branch.split('.')[0]) < 470
+            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < 470
         ]
         if ultra_devices:
             print("\nUltra-legacy GPU(s) detected (branch < 470):")
             for dev in ultra_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
-            branches = sorted(set(
-                dev.original_legacy_branch.split('.')[0] for dev in ultra_devices
-            ))
+            branches = sorted({
+                _safe_branch_int(dev.original_legacy_branch)
+                for dev in ultra_devices
+                if _safe_branch_int(dev.original_legacy_branch) >= 0
+            })
             print("\nThese versions are no longer in official repositories.")
             print("You can find them in the AUR (Arch User Repository) as:")
             for branch in branches:
