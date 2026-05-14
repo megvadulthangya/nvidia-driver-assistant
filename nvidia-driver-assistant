@@ -144,10 +144,10 @@ simulated_gpus = {
     },
     "750": {
         "modalias": "pci:v000010DEd00001380sv000010DEsd000018FEbc03sc00i00",
-        "expected_name": "GeForce 750",
+        "expected_name": "NVIDIA GeForce GTX 750 Ti",
         "expected_devid": "0x1380",
         "expected_arch": "maxwell",
-        "expected_legacy": "470"
+        "expected_legacy": "580"
     },
     "800A": {
         "modalias": "pci:v000010DEd00001058sv000017AAsd00003682bc03sc00i00",
