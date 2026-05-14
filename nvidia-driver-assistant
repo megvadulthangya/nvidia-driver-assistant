@@ -195,6 +195,22 @@ simulated_gpus = {
             "expected_legacy": None
         },
     ],
+    "badmix": [
+        {
+            "modalias": "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00",
+            "expected_name": "GeForce 740A",
+            "expected_devid": "0x1292",
+            "expected_arch": "kepler",
+            "expected_legacy": "390"
+        },
+        {
+            "modalias": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00",
+            "expected_name": "GeForce RTX 5070",
+            "expected_devid": "0x2D18",
+            "expected_arch": "blackwell",
+            "expected_legacy": None
+        },
+    ],
 }
 
 if not os.environ.get("PATH"):
@@ -1080,17 +1096,17 @@ def show_multiple_match_warning(device_id, selected_name, all_names):
     print("=" * 70 + "\n", file=sys.stderr)
 
 
-def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, simulate_mixed=False, suppress_warnings=False):
+def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, simulate_multi=None, suppress_warnings=False):
     """Get a dictionary with all the NVIDIA graphics devices
 
     Returns {str PCI_ID: Device object, etc.}
     """
     pci_class_display = "03"
 
-    if simulate_mixed:
-        mixed_gpus = simulated_gpus["mixed"]
+    if simulate_multi:
+        multi_gpus = simulated_gpus[simulate_multi]
         modaliases = {}
-        for idx, gpu_data in enumerate(mixed_gpus):
+        for idx, gpu_data in enumerate(multi_gpus):
             modalias = gpu_data["modalias"]
             modaliases[modalias] = f'/sys/devices/pci0000:00/0000:00:0{idx + 1}.0/0000:0{idx + 1}:00.0'
     elif simulate_gpu:
@@ -1162,7 +1178,7 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, simulate_mix
                                    "0x%s%s" % (details.group(6), details.group(7)))
                             )
 
-                            pci_info = get_pci_device_info(syspath) if not simulate_gpu and not simulate_mixed else None
+                            pci_info = get_pci_device_info(syspath) if not simulate_gpu and not simulate_multi else None
                             pci_match_info = {
                                 "subsystem_vendor": subsys_vendor,
                                 "subsystem_device": subsys_device,
@@ -1172,8 +1188,8 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, simulate_mix
                                 pci_match_info.update(pci_info)
                             if simulate_gpu:
                                 pci_match_info["simulate_gpu"] = simulate_gpu
-                            if simulate_mixed:
-                                pci_match_info["simulate_mixed"] = True
+                            if simulate_multi:
+                                pci_match_info["simulate_multi"] = simulate_multi
 
                             if devid in gpu_map:
                                 matching_gpus = gpu_map[devid]
@@ -1355,12 +1371,12 @@ def check_legacy_devices(devices):
 
 
 def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
-                     simulate_gpu=None, simulate_mixed=False, suppress_warnings=False):
+                     simulate_gpu=None, simulate_multi=None, suppress_warnings=False):
     """Recommend a driver using the available logic.
 
     Returns a 4-tuple: (driver, legacy_branch, unsupported_devices, devices_dict)
     """
-    devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, simulate_mixed, suppress_warnings)
+    devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, simulate_multi, suppress_warnings)
     if not suppress_warnings:
         print_pretty_gpu_summary(devices)
 
@@ -1589,10 +1605,12 @@ def main():
         type=str,
         help='Specify a kernel module flavor; "open" and "closed" are accepted values. Useful for testing',
     )
+    multi_gpu_scenarios = [k for k, v in simulated_gpus.items() if isinstance(v, list)]
+    single_gpu_choices = [k for k, v in simulated_gpus.items() if isinstance(v, dict)]
     sim_group = parser.add_mutually_exclusive_group()
     sim_group.add_argument(
         "--simulate-gpu",
-        choices=[k for k in simulated_gpus if k != "mixed"],
+        choices=single_gpu_choices,
         nargs="?",
         type=str,
         help="Specify a simulated gpu; Useful for testing",
@@ -1602,6 +1620,12 @@ def main():
         action="store_true",
         default=False,
         help="Simulate a mixed-GPU system (GTX 750 Ti + RTX 5070); Useful for testing",
+    )
+    sim_group.add_argument(
+        "--simulate-badmix",
+        action="store_true",
+        default=False,
+        help="Simulate a mixed-GPU system (740A + RTX 5070); Useful for testing",
     )
     parser.add_argument(
         "--mhwd",
@@ -1631,6 +1655,7 @@ def main():
     mhwd = args.mhwd
     simulate_gpu = args.simulate_gpu
     simulate_mixed = args.simulate_mixed
+    simulate_badmix = args.simulate_badmix
     json_output = args.json
     system_info = None
 
@@ -1660,13 +1685,19 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    simulate_multi = None
+    if simulate_mixed:
+        simulate_multi = "mixed"
+    elif simulate_badmix:
+        simulate_multi = "badmix"
+
     suppress_warnings = mhwd or json_output
     driver, legacy_branch, unsupported_devices, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
         use_driver_hints=True,
         simulate_gpu=simulate_gpu,
-        simulate_mixed=simulate_mixed,
+        simulate_multi=simulate_multi,
         suppress_warnings=suppress_warnings,
     )
 
