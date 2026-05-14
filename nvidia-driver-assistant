@@ -1853,6 +1853,28 @@ def main():
         print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch)
         branch_locked = legacy_branch
 
+    # --- Legacy branch + open driver sanity check ---
+    # Open kernel modules (nvidia-open) were first introduced in driver R515.43.04
+    # (2022-05-11). No legacy branch (≤ 580) has ever shipped open kernel modules,
+    # and no distribution packages them. In mixed-GPU systems a modern card
+    # (e.g. RTX 5070) may pull the recommendation toward "open", but if the final
+    # branch is a legacy one, the open flavour simply does not exist.
+    #
+    # Force "closed" whenever the effective branch is ≤ 580 and the recommendation
+    # is "open". This is safe: the modern card will still work with the proprietary
+    # driver; the legacy card requires it.
+    if driver == "open" and branch_locked:
+        try:
+            effective_branch = int(str(branch_locked).split('.')[0])
+            if effective_branch <= 580:
+                logging.debug(
+                    "Legacy branch %s does not support open kernel modules; "
+                    "switching recommendation from open to closed.", branch_locked
+                )
+                driver = "closed"
+        except ValueError:
+            pass
+
     # Arch 580 special AUR fallback
     if system_info.id == "arch" and str(branch_locked) == "580":
         print("\nArch official repositories no longer include branch 580.xx.")
