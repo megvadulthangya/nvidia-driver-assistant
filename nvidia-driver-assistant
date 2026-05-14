@@ -63,27 +63,116 @@ open_supported = "kernelopen"
 support_flags = (open_supported, proprietary_supported)
 
 # ===== CONTROL VARIABLES (for distribution-specific overrides) =====
+#
+# These variables allow a distribution maintainer to override the driver
+# branch and kernel module flavour recommended for certain GPU categories.
+# They are evaluated inside Device._parse_features() and apply globally
+# to all detected GPUs, regardless of the user's distro (they are not
+# distro-conditional).  All overrides force the proprietary driver hint
+# and disable open-kernel module preference.  Compatibility checks are
+# still performed, and AUTO_FALLBACK can revert to a safe branch if the
+# requested override is incompatible with the GPU's architecture.
+
 # 1. Non-legacy cards (no legacybranch in JSON)
 DISTRO_NON_LEGACY_DEFAULT_BRANCH = None
+"""
+Override the default driver branch for modern (non-legacy) GPUs.
+
+- Active when: a GPU entry in supported-gpus.json does **not** have a
+  `legacybranch` field (i.e. it is a currently fully supported card).
+- If this variable is set to a string like "550", the script will assign
+  that branch (e.g. "550.00") as the legacy_branch for every such GPU,
+  **and** force the driver hint to `proprietary_required` (closed-source
+  kernel module), even if the JSON flags allow open modules.
+- Before applying, a compatibility check ensures the requested branch
+  meets the GPU architecture's minimum driver requirement.  If the check
+  fails, an error is logged and, with AUTO_FALLBACK=True, the safest
+  compatible branch is used instead.
+- Setting this to None (default) disables the override and lets the
+  normal logic decide the latest available branch.
+- Use case: a distribution that wants to lock all modern GPUs to a
+  specific, tested driver series (e.g. 550) instead of the newest one.
+"""
 
 # 2. 580+ legacy branch cards (JSON has "legacybranch": "580.xx" or higher)
 DISTRO_580_LEGACY_OVERRIDE_BRANCH = None
+"""
+Override the driver branch for legacy GPUs whose JSON legacy branch is
+>= 580.xx.
+
+- Active only for GPUs where the original `legacybranch` from the JSON
+  file starts with a major version >= 580 (e.g. "580.xx", "590.xx").
+- If set to e.g. "575", the script replaces the GPU's legacy branch with
+  "575.00" and forces `proprietary_required`.
+- The override is still validated against the GPU architecture's minimum
+  driver.  If incompatible, an error is logged and AUTO_FALLBACK decides
+  whether to keep the original JSON branch or fall back to a safe one.
+- Setting this to None disables the override, so those GPUs keep their
+  original JSON legacy branch.
+- Use case: a distribution that wants to downgrade 580-series legacy
+  cards to a different branch (e.g. 575) while keeping the closed module.
+"""
 
 # ===== LEGACY BRANCH OPENKERNEL RESTRICTION =====
-# If True, all legacy branches (71.86.xx to 580.xx) will not use open kernel modules
 ENABLE_LEGACY_OPENKERNEL_RESTRICTION = True
+"""
+Force all legacy branch GPUs to use the proprietary (closed-source) kernel
+module, overriding any open-module capability flags in the JSON.
+
+- When True, every GPU that has **any** legacy branch (from 71.86.xx up
+  to and including 580.xx) gets `driver_hint = proprietary_required`,
+  regardless of whether the JSON features indicate open-module support.
+- This restriction is applied early in the feature-parsing logic (before
+  architecture checks) and cannot be overridden by DISTRO_*_BRANCH.
+- If set to False, legacy GPUs that are flagged as `kernelopen` in the
+  JSON may be recommended with an open kernel module, subject to the
+  architecture check.
+- Intended for distributions that consider open kernel modules
+  experimental or unsupported on older hardware.
+"""
 
 # ===== ARCHITECTURE-BASED OPENKERNEL CHECK =====
-# If True, use architecture lists to determine open kernel capability
 ENABLE_ARCHITECTURE_CHECK = True
+"""
+Use the GPU architecture to decide whether the open kernel module is
+allowed.
+
+- When True, the script inspects the GPU's detected architecture (from
+  `_determine_architecture()`) and compares it against two lists:
+  `OPEN_CAPABLE_ARCHS` and `OPEN_UNSUPPORTED_ARCHS`.  If the architecture
+  is in the "capable" list, the open module can be recommended (provided
+  the JSON also flags it).  If it is in the "unsupported" list, the
+  proprietary module is forced, even if the JSON says otherwise.
+- This check is applied **after** legacy-branch openkernel restriction
+  and **after** the DISTRO_* overrides have potentially forced proprietary.
+  Consequently, an architecture-level block will always result in
+  `proprietary_required`.
+- When False, the decision is based purely on the JSON feature flags
+  and legacy-branch logic, ignoring the architecture lists.
+- Note: architectures not listed in either set are treated as unknown;
+  they follow the generic logic and may get the open module if the JSON
+  permits.
+"""
 
 # Architectures that support open kernel modules (only used if ENABLE_ARCHITECTURE_CHECK is True)
 OPEN_CAPABLE_ARCHS = ("turing", "ampere", "ada", "blackwell")
+"""
+List of GPU architectures (detected from device name) that are allowed
+to use the open-source kernel module.  If a GPU's architecture is in
+this list and the JSON flags include `kernelopen`, the open module can
+be recommended (unless forced to proprietary by other settings).
+"""
+
 # Architectures that don't support open kernel modules (require proprietary)
 OPEN_UNSUPPORTED_ARCHS = (
     "maxwell", "pascal", "volta", "fermi", "kepler",
     "tesla2", "tesla1", "curie", "pre-curie", "unknown"
 )
+"""
+Architectures that are known to lack open-module support or are too
+old; they are always forced to the proprietary driver when
+ENABLE_ARCHITECTURE_CHECK is True.
+"""
 
 # ===== ARCHITECTURE MINIMUM DRIVER REQUIREMENTS =====
 ARCHITECTURE_MIN_DRIVER = {
@@ -102,15 +191,109 @@ ARCHITECTURE_MIN_DRIVER = {
     "pre-curie": "71",
     "unknown": "390",
 }
+"""
+The minimum NVIDIA driver branch (major version) required for each GPU
+architecture.  Used in compatibility checks when an override branch is
+requested or when calculating supported ranges.  If a requested branch
+is older than this minimum, the override is rejected and a fallback
+is used (if AUTO_FALLBACK is enabled).
+"""
 
 # ===== SAFETY CONFIGURATION =====
 ENABLE_STRICT_COMPATIBILITY = True
+"""
+(Currently not directly consumed in the code - placeholder for future
+strict driver-version matching logic.)
+"""
+
 REQUIRE_CONFIRMATION = False
+"""
+If True, the script would ask for user confirmation before installing;
+currently not implemented in this version, left for potential interactive
+use.
+"""
+
 AUTO_FALLBACK = True
+"""
+When an override (DISTRO_NON_LEGACY_DEFAULT_BRANCH or
+DISTRO_580_LEGACY_OVERRIDE_BRANCH) is incompatible with the GPU's
+architecture, this flag enables automatic fallback to a safe driver
+branch:
+  - For non-legacy overrides, the safe branch is the architecture's
+    minimum driver or the highest compatible legacy branch.
+  - For 580+ legacy overrides, the fallback prefers the original JSON
+    legacy branch if it is compatible; otherwise it uses the
+    architecture's minimum.
+If set to False, an incompatible override would be rejected without
+a fallback, leaving the driver selection unresolved (likely causing
+an error later).
+"""
+
 MAX_BRANCH_MISMATCH = 0
+"""
+(Intended for future use - could allow a tolerance when comparing
+requested vs. available branches, not currently implemented.)
+"""
 
 # Minimum legacy driver branch that is still supported (NVIDIA 0.51)
 min_supported_legacy_branch = 580
+"""
+Defines the cutoff for "supported" legacy branches.  GPUs with a
+legacy branch major version **below** this value are considered
+unsupported.  In most distros they cause the script to exit with an
+error (except Manjaro and Arch, which have special handling for older
+branches).  This value is also used in the architecture-vs-580 check:
+if a GPU's architecture is modern but the JSON erroneously lists a
+legacy branch < 580, the legacy flag is ignored.
+"""
+
+# ===== DISTRO-SPECIFIC LEGACY BRANCH REPOSITORY THRESHOLDS =====
+#
+# These variables define which legacy driver branches are available in
+# each distribution's official repositories vs. requiring AUR (Arch User
+# Repository).  Distro maintainers should update these values when repo
+# contents change (e.g. when a new legacy branch is dropped or added).
+
+MANJARO_MIN_OFFICIAL_LEGACY_BRANCH = 390
+"""
+Minimum legacy branch available in the Manjaro official repositories.
+
+- Legacy branches **below** this value are directed to AUR with
+  per-branch package names (e.g. nvidia-340xx-dkms).
+- Legacy branches **>= this value** (but < min_supported_legacy_branch)
+  are considered available in the official Manjaro repos and the script
+  merges them into the normal legacy branch selection.
+- Update this value when Manjaro drops or adds legacy branches in its
+  official repositories.
+"""
+
+ARCH_MIN_REPO_LEGACY_BRANCH = None
+"""
+Minimum legacy branch available in the Arch Linux official/community
+repositories, or None if no legacy branches are packaged.
+
+- When set to an integer (e.g. 470): legacy branches **below** this
+  value are directed to AUR; branches **>= this value** (and not in
+  ARCH_AUR_ONLY_BRANCHES) are considered available via Arch repos.
+- When set to None (current default): **all** unsupported legacy
+  branches are directed to AUR, because Arch official repos only
+  ship the latest (non-legacy) driver.
+- Update this value if Arch starts packaging legacy branches again.
+"""
+
+ARCH_AUR_ONLY_BRANCHES = (580,)
+"""
+Legacy branches that pass the min_supported_legacy_branch check (i.e.
+they are "supported" legacy, not "unsupported") but are still NOT in
+the official Arch repos.  These are redirected to AUR.
+
+- This catches branches that are >= min_supported_legacy_branch and
+  therefore not in unsupported_devices, yet still require AUR.
+- Currently Arch only ships the latest driver (e.g. 595); branch 580
+  is the newest legacy branch and lives in AUR.
+- Update this tuple when new legacy branches appear or when Arch
+  adds/removes legacy packages from official repos.
+"""
 
 # Enhanced simulated GPU data with more detailed information
 simulated_gpus = {
@@ -179,6 +362,38 @@ simulated_gpus = {
         "expected_arch": "unknown",
         "expected_legacy": None
     },
+    "mixed": [
+        {
+            "modalias": "pci:v000010DEd00001380sv000010DEsd000018FEbc03sc00i00",
+            "expected_name": "NVIDIA GeForce GTX 750 Ti",
+            "expected_devid": "0x1380",
+            "expected_arch": "maxwell",
+            "expected_legacy": "580"
+        },
+        {
+            "modalias": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00",
+            "expected_name": "GeForce RTX 5070",
+            "expected_devid": "0x2D18",
+            "expected_arch": "blackwell",
+            "expected_legacy": None
+        },
+    ],
+    "badmix": [
+        {
+            "modalias": "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00",
+            "expected_name": "GeForce 740A",
+            "expected_devid": "0x1292",
+            "expected_arch": "kepler",
+            "expected_legacy": "390"
+        },
+        {
+            "modalias": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00",
+            "expected_name": "GeForce RTX 5070",
+            "expected_devid": "0x2D18",
+            "expected_arch": "blackwell",
+            "expected_legacy": None
+        },
+    ],
 }
 
 if not os.environ.get("PATH"):
@@ -695,6 +910,36 @@ class Device(object):
         # 4. Architecture-based check
         if ENABLE_ARCHITECTURE_CHECK:
             if self.architecture in OPEN_CAPABLE_ARCHS:
+                # --- WORKAROUND: NVIDIA JSON bug (legacy 580 + kernelopen) ---
+                # As of 2025-01-01 (reported to NVIDIA, still unfixed as of 2025-05-14),
+                # https://forums.developer.nvidia.com/t/nvidia-driver-assistant-0-23-44-01-1-and-later-suggests-wrong-drivers/356276
+                # some legacy 580 branch entries in supported-gpus.json incorrectly
+                # contain the "kernelopen" feature flag. Legacy 580 GPUs must NEVER
+                # use open kernel modules — they require proprietary drivers.
+                #
+                # This guard prevents a legacy 580 device from being assigned
+                # open_required, which would cause incorrect driver recommendations
+                # in mixed-GPU systems (e.g., legacy 580 + modern non-legacy card).
+                #
+                # TO REMOVE THIS WORKAROUND: Once NVIDIA removes the erroneous
+                # "kernelopen" flag from all legacy 580 entries in supported-gpus.json,
+                # delete this if-block. Step 3 above (ENABLE_LEGACY_OPENKERNEL_RESTRICTION)
+                # already provides the primary protection; this is an additional safeguard.
+                if self.original_legacy_branch:
+                    try:
+                        _legacy_major = int(self.original_legacy_branch.split('.')[0])
+                        if _legacy_major <= 580:
+                            self.driver_hint = proprietary_required
+                            logging.debug(
+                                "WORKAROUND: %s has legacy branch %s but kernelopen in JSON; "
+                                "forcing proprietary (NVIDIA JSON bug)",
+                                self.name, self.original_legacy_branch
+                            )
+                            return
+                    except ValueError:
+                        pass
+                # --- END WORKAROUND ---
+
                 if open_supported in flags:
                     self.driver_hint = default
                 else:
@@ -1064,14 +1309,20 @@ def show_multiple_match_warning(device_id, selected_name, all_names):
     print("=" * 70 + "\n", file=sys.stderr)
 
 
-def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, suppress_warnings=False):
+def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, simulate_multi=None, suppress_warnings=False):
     """Get a dictionary with all the NVIDIA graphics devices
 
     Returns {str PCI_ID: Device object, etc.}
     """
     pci_class_display = "03"
 
-    if simulate_gpu:
+    if simulate_multi:
+        multi_gpus = simulated_gpus[simulate_multi]
+        modaliases = {}
+        for idx, gpu_data in enumerate(multi_gpus):
+            modalias = gpu_data["modalias"]
+            modaliases[modalias] = f'/sys/devices/pci0000:00/0000:00:0{idx + 1}.0/0000:0{idx + 1}:00.0'
+    elif simulate_gpu:
         if simulate_gpu in simulated_gpus:
             gpu_data = simulated_gpus[simulate_gpu]
             modalias = gpu_data["modalias"]
@@ -1140,7 +1391,7 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, suppress_war
                                    "0x%s%s" % (details.group(6), details.group(7)))
                             )
 
-                            pci_info = get_pci_device_info(syspath) if not simulate_gpu else None
+                            pci_info = get_pci_device_info(syspath) if not simulate_gpu and not simulate_multi else None
                             pci_match_info = {
                                 "subsystem_vendor": subsys_vendor,
                                 "subsystem_device": subsys_device,
@@ -1150,6 +1401,8 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, suppress_war
                                 pci_match_info.update(pci_info)
                             if simulate_gpu:
                                 pci_match_info["simulate_gpu"] = simulate_gpu
+                            if simulate_multi:
+                                pci_match_info["simulate_multi"] = simulate_multi
 
                             if devid in gpu_map:
                                 matching_gpus = gpu_map[devid]
@@ -1331,12 +1584,12 @@ def check_legacy_devices(devices):
 
 
 def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
-                     simulate_gpu=None, suppress_warnings=False):
+                     simulate_gpu=None, simulate_multi=None, suppress_warnings=False):
     """Recommend a driver using the available logic.
 
     Returns a 4-tuple: (driver, legacy_branch, unsupported_devices, devices_dict)
     """
-    devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, suppress_warnings)
+    devices = get_nvidia_devices(sys_path, supported_gpus, simulate_gpu, simulate_multi, suppress_warnings)
     if not suppress_warnings:
         print_pretty_gpu_summary(devices)
 
@@ -1565,12 +1818,27 @@ def main():
         type=str,
         help='Specify a kernel module flavor; "open" and "closed" are accepted values. Useful for testing',
     )
-    parser.add_argument(
+    multi_gpu_scenarios = [k for k, v in simulated_gpus.items() if isinstance(v, list)]
+    single_gpu_choices = [k for k, v in simulated_gpus.items() if isinstance(v, dict)]
+    sim_group = parser.add_mutually_exclusive_group()
+    sim_group.add_argument(
         "--simulate-gpu",
-        choices=list(simulated_gpus.keys()),
+        choices=single_gpu_choices,
         nargs="?",
         type=str,
         help="Specify a simulated gpu; Useful for testing",
+    )
+    sim_group.add_argument(
+        "--simulate-mixed",
+        action="store_true",
+        default=False,
+        help="Simulate a mixed-GPU system (GTX 750 Ti + RTX 5070); Useful for testing",
+    )
+    sim_group.add_argument(
+        "--simulate-badmix",
+        action="store_true",
+        default=False,
+        help="Simulate a mixed-GPU system (740A + RTX 5070); Useful for testing",
     )
     parser.add_argument(
         "--mhwd",
@@ -1599,6 +1867,8 @@ def main():
     print_supported_distros = args.list_supported_distros
     mhwd = args.mhwd
     simulate_gpu = args.simulate_gpu
+    simulate_mixed = args.simulate_mixed
+    simulate_badmix = args.simulate_badmix
     json_output = args.json
     system_info = None
 
@@ -1628,12 +1898,19 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    simulate_multi = None
+    if simulate_mixed:
+        simulate_multi = "mixed"
+    elif simulate_badmix:
+        simulate_multi = "badmix"
+
     suppress_warnings = mhwd or json_output
     driver, legacy_branch, unsupported_devices, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
         use_driver_hints=True,
         simulate_gpu=simulate_gpu,
+        simulate_multi=simulate_multi,
         suppress_warnings=suppress_warnings,
     )
 
@@ -1651,15 +1928,64 @@ def main():
     if not system_info:
         exit(1)
 
+    skip_legacy_fallback = False
+
+    # --- Mixed-GPU priority: open-capable device + legacy < 580 ---
+    # When the system has both an open-capable non-legacy GPU and a legacy GPU
+    # with branch < 580, we prefer the modern card. The legacy driver branch
+    # (e.g. 470) is too old to support the modern GPU at all, and you cannot
+    # install two different driver branches simultaneously. In this case:
+    #   - Recommend the latest open driver (for the modern card)
+    #   - Warn that the legacy card will not function with this driver
+    #   - Do NOT fall back to the legacy branch
+    #
+    # Legacy 580 is a special case: the 580 closed driver CAN drive both a
+    # legacy-580 card and a modern open-capable card, so that path is handled
+    # separately (force closed with branch 580).
+    if unsupported_devices and devices:
+        has_open_capable = any(
+            dev.driver_hint in (default, open_supported)
+            for dev in devices.values()
+        )
+        if has_open_capable:
+            legacy_names = [
+                f"{dev.name} (PCI ID: {dev.id}, legacy branch: {dev.original_legacy_branch})"
+                for dev in unsupported_devices
+            ]
+            if not suppress_warnings:
+                print(
+                    "\nNote: The following legacy GPU(s) are incompatible with the "
+                    "driver required by your modern GPU(s):"
+                )
+                for name in legacy_names:
+                    print(f"  {name}")
+                print(
+                    "\nThe legacy driver branch is too old to support your modern GPU. "
+                    "Recommending the latest driver for the modern card(s).\n"
+                    "The legacy GPU(s) listed above will NOT function with this driver.\n"
+                )
+            logging.debug(
+                "Mixed-GPU priority: discarding unsupported legacy devices in favour of "
+                "open-capable modern device(s). Legacy devices: %s",
+                ", ".join(legacy_names)
+            )
+            unsupported_devices = []
+            legacy_branch = None
+            driver = "open"
+            # Signal that we intentionally chose to skip legacy — prevents later
+            # fallback paths (e.g. manjaro_get_legacy_branch) from re-introducing
+            # a legacy branch that we already discarded.
+            skip_legacy_fallback = True
+
     # --- Distro-specific legacy handling ---
-    # Manjaro: official repos support down to branch 390; below that AUR
+    # Manjaro: official repos support down to MANJARO_MIN_OFFICIAL_LEGACY_BRANCH; below that AUR
     if system_info.id == "manjaro" and unsupported_devices:
         ultra_devices = [
             dev for dev in unsupported_devices
-            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < 390
+            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < MANJARO_MIN_OFFICIAL_LEGACY_BRANCH
         ]
         if ultra_devices:
-            print("\nUltra-legacy GPU(s) detected (branch < 390):")
+            print("\nUltra-legacy GPU(s) detected (branch < %d):" % MANJARO_MIN_OFFICIAL_LEGACY_BRANCH)
             for dev in ultra_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
             branches = sorted({
@@ -1676,7 +2002,7 @@ def main():
             print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
             exit(0)
         else:
-            # Branches >= 390 (but < 580) are available in Manjaro official repos
+            # Branches >= MANJARO_MIN_OFFICIAL_LEGACY_BRANCH (but < min_supported_legacy_branch) are available in Manjaro official repos
             print(
                 "\nNote: These legacy branches are still available in the Manjaro official repositories.",
                 file=sys.stderr,
@@ -1695,30 +2021,35 @@ def main():
                             pass
             unsupported_devices = []
 
-    # Arch: official repos dropped 580, keep existing threshold 470 for AUR guidance
+    # Arch: legacy branch repo availability defined by ARCH_MIN_REPO_LEGACY_BRANCH
     elif system_info.id == "arch" and unsupported_devices:
-        ultra_devices = [
-            dev for dev in unsupported_devices
-            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < 470
-        ]
-        if ultra_devices:
-            print("\nUltra-legacy GPU(s) detected (branch < 470):")
-            for dev in ultra_devices:
+        # When ARCH_MIN_REPO_LEGACY_BRANCH is None, ALL unsupported legacy branches → AUR
+        if ARCH_MIN_REPO_LEGACY_BRANCH is None:
+            aur_devices = unsupported_devices
+        else:
+            aur_devices = [
+                dev for dev in unsupported_devices
+                if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < ARCH_MIN_REPO_LEGACY_BRANCH
+            ]
+        if aur_devices:
+            print("\nLegacy GPU(s) detected (requires AUR):")
+            for dev in aur_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
             branches = sorted({
                 _safe_branch_int(dev.original_legacy_branch)
-                for dev in ultra_devices
+                for dev in aur_devices
                 if _safe_branch_int(dev.original_legacy_branch) >= 0
             })
-            print("\nThese versions are no longer in official repositories.")
+            print("\nThese versions are no longer in official Arch repositories.")
             print("You can find them in the AUR (Arch User Repository) as:")
             for branch in branches:
                 print(f"  - nvidia-{branch}xx-dkms")
                 print(f"  - nvidia-{branch}xx-utils")
             print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
             exit(0)
         else:
-            # Branches >= 470 but < 580 are community-supported in Arch repos
+            # Branches >= ARCH_MIN_REPO_LEGACY_BRANCH (and not in ARCH_AUR_ONLY_BRANCHES) are in Arch repos
             print(
                 "\nNote: NVIDIA officially considers these legacy branches unsupported, but they are available via Arch repositories.",
                 file=sys.stderr,
@@ -1760,11 +2091,42 @@ def main():
         print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch)
         branch_locked = legacy_branch
 
-    # Arch 580 special AUR fallback
-    if system_info.id == "arch" and str(branch_locked) == "580":
-        print("\nArch official repositories no longer include branch 580.xx.")
-        print("Please use AUR: 'nvidia-580xx-dkms' and 'nvidia-580xx-utils'.")
-        exit(0)
+    # --- Legacy branch + open driver sanity check ---
+    # Open kernel modules (nvidia-open) were first introduced in driver R515.43.04
+    # (2022-05-11). No legacy branch (≤ 580) has ever shipped open kernel modules,
+    # and no distribution packages them. In mixed-GPU systems a modern card
+    # (e.g. RTX 5070) may pull the recommendation toward "open", but if the final
+    # branch is a legacy one, the open flavour simply does not exist.
+    #
+    # Force "closed" whenever the effective branch is ≤ 580 and the recommendation
+    # is "open". This is safe: the modern card will still work with the proprietary
+    # driver; the legacy card requires it.
+    if driver == "open" and branch_locked:
+        try:
+            effective_branch = int(str(branch_locked).split('.')[0])
+            if effective_branch <= 580:
+                logging.debug(
+                    "Legacy branch %s does not support open kernel modules; "
+                    "switching recommendation from open to closed.", branch_locked
+                )
+                driver = "closed"
+        except ValueError:
+            pass
+
+    # Arch AUR-only branches fallback (branches in ARCH_AUR_ONLY_BRANCHES)
+    if system_info.id == "arch" and branch_locked:
+        try:
+            _bl = int(str(branch_locked).split('.')[0])
+        except ValueError:
+            _bl = None
+        if _bl is not None and _bl in ARCH_AUR_ONLY_BRANCHES:
+            print("\nArch official repositories no longer include branch %s.xx." % _bl)
+            print("You can find it in the AUR (Arch User Repository) as:")
+            print("  - nvidia-%sxx-dkms" % _bl)
+            print("  - nvidia-%sxx-utils" % _bl)
+            print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+            exit(0)
 
     logging.debug("Recommended driver: %s" % driver)
 
@@ -1799,6 +2161,9 @@ def main():
             "distro_580_legacy_override": DISTRO_580_LEGACY_OVERRIDE_BRANCH,
             "legacy_openkernel_restriction": ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
             "architecture_check_enabled": ENABLE_ARCHITECTURE_CHECK,
+            "manjaro_min_official_legacy_branch": MANJARO_MIN_OFFICIAL_LEGACY_BRANCH,
+            "arch_min_repo_legacy_branch": ARCH_MIN_REPO_LEGACY_BRANCH,
+            "arch_aur_only_branches": list(ARCH_AUR_ONLY_BRANCHES),
             "devices": device_list
         }
         print(json.dumps(result, indent=2))
@@ -1816,7 +2181,7 @@ def main():
     logging.debug("OS detected: %s" % system_info.id)
 
     # For Manjaro, if no branch locked yet, try to get from devices (fallback)
-    if not branch_locked and system_info.id == "manjaro" and devices:
+    if not branch_locked and not skip_legacy_fallback and system_info.id == "manjaro" and devices:
         manjaro_branch = manjaro_get_legacy_branch(devices)
         if manjaro_branch:
             branch_locked = manjaro_branch
