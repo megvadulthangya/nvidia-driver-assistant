@@ -50,11 +50,6 @@ default_directory = os.path.dirname(os.path.realpath(__file__))
 default_json_path = os.path.join(default_directory, "supported-gpus", "supported-gpus.json")
 install_json_path = "/usr/share/nvidia-driver-assistant/supported-gpus/supported-gpus.json"
 
-# VDPAU feature groups (kept for legacy VDPAU logic)
-vdpau_group_a = [chr(x) for x in range(ord("a"), ord("c") + 1)]
-vdpau_group_b = [chr(x) for x in range(ord("d"), ord("i") + 1)]
-vdpau_group_c = [chr(x) for x in range(ord("j"), ord("k") + 1)]
-
 # Driver type flags
 proprietary_required = "proprietary_required"
 proprietary_supported = "gsp_proprietary_supported"
@@ -200,19 +195,6 @@ is used (if AUTO_FALLBACK is enabled).
 """
 
 # ===== SAFETY CONFIGURATION =====
-ENABLE_STRICT_COMPATIBILITY = True
-"""
-(Currently not directly consumed in the code - placeholder for future
-strict driver-version matching logic.)
-"""
-
-REQUIRE_CONFIRMATION = False
-"""
-If True, the script would ask for user confirmation before installing;
-currently not implemented in this version, left for potential interactive
-use.
-"""
-
 AUTO_FALLBACK = True
 """
 When an override (DISTRO_NON_LEGACY_DEFAULT_BRANCH or
@@ -227,12 +209,6 @@ branch:
 If set to False, an incompatible override would be rejected without
 a fallback, leaving the driver selection unresolved (likely causing
 an error later).
-"""
-
-MAX_BRANCH_MISMATCH = 0
-"""
-(Intended for future use - could allow a tolerance when comparing
-requested vs. available branches, not currently implemented.)
 """
 
 # Minimum legacy driver branch that is still supported (NVIDIA 0.51)
@@ -300,98 +276,72 @@ simulated_gpus = {
     "545": {
         "modalias": "pci:v000010DEd00001241sv000010DEsd000018FEbc03sc00i00",
         "expected_name": "GeForce 545",
-        "expected_devid": "0x1241",
-        "expected_arch": "fermi",
-        "expected_legacy": "390"
+        "expected_devid": "0x1241"
     },
     "nvs290": {
         "modalias": "pci:v000010DEd0000042Fsv000010DEsd00000000bc03sc00i00",
         "expected_name": "Quadro NVS 290",
-        "expected_devid": "0x042F",
-        "expected_arch": "tesla1",
-        "expected_legacy": "340"
+        "expected_devid": "0x042F"
     },
     "7150m": {
         "modalias": "pci:v000010DEd00000531sv000010DEsd00000000bc03sc00i00",
         "expected_name": "GeForce 7150M / nForce 630M",
-        "expected_devid": "0x0531",
-        "expected_arch": "curie",
-        "expected_legacy": "304"
+        "expected_devid": "0x0531"
     },
     "740A": {
         "modalias": "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00",
         "expected_name": "GeForce 740A",
-        "expected_devid": "0x1292",
-        "expected_arch": "kepler",
-        "expected_legacy": "390"
+        "expected_devid": "0x1292"
     },
     "750": {
         "modalias": "pci:v000010DEd00001380sv000010DEsd000018FEbc03sc00i00",
         "expected_name": "NVIDIA GeForce GTX 750 Ti",
-        "expected_devid": "0x1380",
-        "expected_arch": "maxwell",
-        "expected_legacy": "580"
+        "expected_devid": "0x1380"
     },
     "800A": {
         "modalias": "pci:v000010DEd00001058sv000017AAsd00003682bc03sc00i00",
         "expected_name": "GeForce 800A",
         "expected_devid": "0x1058",
         "expected_subsys_vendor": "0x17AA",
-        "expected_subsys_device": "0x3682",
-        "expected_arch": "fermi",
-        "expected_legacy": "390"
+        "expected_subsys_device": "0x3682"
     },
     "4070": {
         "modalias": "pci:v000010DEd00002783sv000010DEsd000018FEbc03sc00i00",
         "expected_name": "GeForce RTX 4070",
-        "expected_devid": "0x2783",
-        "expected_arch": "ada",
-        "expected_legacy": None
+        "expected_devid": "0x2783"
     },
     "5070": {
         "modalias": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00",
         "expected_name": "GeForce RTX 5070",
-        "expected_devid": "0x2D18",
-        "expected_arch": "blackwell",
-        "expected_legacy": None
+        "expected_devid": "0x2D18"
     },
     "unknown": {
         "modalias": "pci:v000010DEd000022BCsv000010DEsd000018FEbc04sc03i00",
         "expected_name": "unknown",
-        "expected_devid": "0x22BC",
-        "expected_arch": "unknown",
-        "expected_legacy": None
+        "expected_devid": "0x22BC"
     },
     "mixed": [
         {
             "modalias": "pci:v000010DEd00001380sv000010DEsd000018FEbc03sc00i00",
             "expected_name": "NVIDIA GeForce GTX 750 Ti",
-            "expected_devid": "0x1380",
-            "expected_arch": "maxwell",
-            "expected_legacy": "580"
+            "expected_devid": "0x1380"
         },
         {
             "modalias": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00",
             "expected_name": "GeForce RTX 5070",
-            "expected_devid": "0x2D18",
-            "expected_arch": "blackwell",
-            "expected_legacy": None
+            "expected_devid": "0x2D18"
         },
     ],
     "badmix": [
         {
             "modalias": "pci:v000010DEd00001292sv000010DEsd000018FEbc03sc00i00",
             "expected_name": "GeForce 740A",
-            "expected_devid": "0x1292",
-            "expected_arch": "kepler",
-            "expected_legacy": "390"
+            "expected_devid": "0x1292"
         },
         {
             "modalias": "pci:v000010DEd00002D18sv000017AAsd00003E31bc03sc00i00",
             "expected_name": "GeForce RTX 5070",
-            "expected_devid": "0x2D18",
-            "expected_arch": "blackwell",
-            "expected_legacy": None
+            "expected_devid": "0x2D18"
         },
     ],
 }
@@ -519,7 +469,6 @@ class Device(object):
         self.id = id
         self.name = name
         self.features = features
-        self.vdpau_feat = ""
         self.original_legacy_branch = legacy_branch  # preserve original JSON legacybranch
         self.legacy_branch = legacy_branch
         self.driver_hint = ""
@@ -805,9 +754,7 @@ class Device(object):
         for feat in features:
             feat = feat.lower()
             logging.debug("Device: has following feature: %s" % (feat))
-            if feat.find("vdpaufeatureset") != -1:
-                self.vdpau_feat = feat.replace("vdpaufeatureset", "")[0]
-            elif feat in support_flags:
+            if feat in support_flags:
                 flags.append(feat)
 
         logging.debug("Device: has following flags: %s" % (flags))
@@ -1464,36 +1411,6 @@ def print_pretty_gpu_summary(devices):
     print()
 
 
-def get_driver_from_vdpau_feat(devices):
-    """Use the supported VDPAU feature sets to recommend a driver (older method)"""
-    hints = []
-    for dev in devices.values():
-        if dev.vdpau_feat:
-            if dev.vdpau_feat in vdpau_group_a:
-                hint = proprietary_required
-                continue
-            elif dev.vdpau_feat in vdpau_group_b:
-                hint = proprietary_required
-            elif dev.vdpau_feat in vdpau_group_c:
-                hint = proprietary_supported
-            else:
-                hint = default
-        else:
-            if dev.legacy_branch and int(dev.legacy_branch.split(".")[0]) <= 470:
-                hint = proprietary_required
-            else:
-                hint = default
-        hints.append(hint)
-
-    if default in hints:
-        return "open"
-    else:
-        if proprietary_required in hints:
-            return "closed"
-        else:
-            return "open"
-
-
 def get_driver_from_json_hints(devices):
     """Use the flags in supported-gpus.json to recommend a driver (primary method)"""
     hints = [dev.driver_hint for dev in devices.values()]
@@ -1601,12 +1518,8 @@ def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
 
     logging.debug("recommend_driver(): Do device IDs support the open driver?")
 
-    if use_driver_hints:
-        logging.debug("recommend_driver(): using json logic")
-        driver = get_driver_from_json_hints(devices)
-    else:
-        logging.debug("recommend_driver(): using VDPAU logic")
-        driver = get_driver_from_vdpau_feat(devices)
+    logging.debug("recommend_driver(): using json logic")
+    driver = get_driver_from_json_hints(devices)
 
     return driver, legacy_branch, unsupported_devices, devices
 
