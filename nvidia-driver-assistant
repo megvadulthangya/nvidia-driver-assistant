@@ -729,6 +729,7 @@ class Device(object):
             if self.architecture in OPEN_CAPABLE_ARCHS:
                 # --- WORKAROUND: NVIDIA JSON bug (legacy 580 + kernelopen) ---
                 # As of 2025-01-01 (reported to NVIDIA, still unfixed as of 2025-05-14),
+                # https://forums.developer.nvidia.com/t/nvidia-driver-assistant-0-23-44-01-1-and-later-suggests-wrong-drivers/356276
                 # some legacy 580 branch entries in supported-gpus.json incorrectly
                 # contain the "kernelopen" feature flag. Legacy 580 GPUs must NEVER
                 # use open kernel modules — they require proprietary drivers.
