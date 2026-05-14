@@ -63,27 +63,116 @@ open_supported = "kernelopen"
 support_flags = (open_supported, proprietary_supported)
 
 # ===== CONTROL VARIABLES (for distribution-specific overrides) =====
+#
+# These variables allow a distribution maintainer to override the driver
+# branch and kernel module flavour recommended for certain GPU categories.
+# They are evaluated inside Device._parse_features() and apply globally
+# to all detected GPUs, regardless of the user's distro (they are not
+# distro-conditional).  All overrides force the proprietary driver hint
+# and disable open-kernel module preference.  Compatibility checks are
+# still performed, and AUTO_FALLBACK can revert to a safe branch if the
+# requested override is incompatible with the GPU's architecture.
+
 # 1. Non-legacy cards (no legacybranch in JSON)
 DISTRO_NON_LEGACY_DEFAULT_BRANCH = None
+"""
+Override the default driver branch for modern (non-legacy) GPUs.
+
+- Active when: a GPU entry in supported-gpus.json does **not** have a
+  `legacybranch` field (i.e. it is a currently fully supported card).
+- If this variable is set to a string like "550", the script will assign
+  that branch (e.g. "550.00") as the legacy_branch for every such GPU,
+  **and** force the driver hint to `proprietary_required` (closed-source
+  kernel module), even if the JSON flags allow open modules.
+- Before applying, a compatibility check ensures the requested branch
+  meets the GPU architecture's minimum driver requirement.  If the check
+  fails, an error is logged and, with AUTO_FALLBACK=True, the safest
+  compatible branch is used instead.
+- Setting this to None (default) disables the override and lets the
+  normal logic decide the latest available branch.
+- Use case: a distribution that wants to lock all modern GPUs to a
+  specific, tested driver series (e.g. 550) instead of the newest one.
+"""
 
 # 2. 580+ legacy branch cards (JSON has "legacybranch": "580.xx" or higher)
 DISTRO_580_LEGACY_OVERRIDE_BRANCH = None
+"""
+Override the driver branch for legacy GPUs whose JSON legacy branch is
+>= 580.xx.
+
+- Active only for GPUs where the original `legacybranch` from the JSON
+  file starts with a major version >= 580 (e.g. "580.xx", "590.xx").
+- If set to e.g. "575", the script replaces the GPU's legacy branch with
+  "575.00" and forces `proprietary_required`.
+- The override is still validated against the GPU architecture's minimum
+  driver.  If incompatible, an error is logged and AUTO_FALLBACK decides
+  whether to keep the original JSON branch or fall back to a safe one.
+- Setting this to None disables the override, so those GPUs keep their
+  original JSON legacy branch.
+- Use case: a distribution that wants to downgrade 580-series legacy
+  cards to a different branch (e.g. 575) while keeping the closed module.
+"""
 
 # ===== LEGACY BRANCH OPENKERNEL RESTRICTION =====
-# If True, all legacy branches (71.86.xx to 580.xx) will not use open kernel modules
 ENABLE_LEGACY_OPENKERNEL_RESTRICTION = True
+"""
+Force all legacy branch GPUs to use the proprietary (closed-source) kernel
+module, overriding any open-module capability flags in the JSON.
+
+- When True, every GPU that has **any** legacy branch (from 71.86.xx up
+  to and including 580.xx) gets `driver_hint = proprietary_required`,
+  regardless of whether the JSON features indicate open-module support.
+- This restriction is applied early in the feature-parsing logic (before
+  architecture checks) and cannot be overridden by DISTRO_*_BRANCH.
+- If set to False, legacy GPUs that are flagged as `kernelopen` in the
+  JSON may be recommended with an open kernel module, subject to the
+  architecture check.
+- Intended for distributions that consider open kernel modules
+  experimental or unsupported on older hardware.
+"""
 
 # ===== ARCHITECTURE-BASED OPENKERNEL CHECK =====
-# If True, use architecture lists to determine open kernel capability
 ENABLE_ARCHITECTURE_CHECK = True
+"""
+Use the GPU architecture to decide whether the open kernel module is
+allowed.
+
+- When True, the script inspects the GPU's detected architecture (from
+  `_determine_architecture()`) and compares it against two lists:
+  `OPEN_CAPABLE_ARCHS` and `OPEN_UNSUPPORTED_ARCHS`.  If the architecture
+  is in the "capable" list, the open module can be recommended (provided
+  the JSON also flags it).  If it is in the "unsupported" list, the
+  proprietary module is forced, even if the JSON says otherwise.
+- This check is applied **after** legacy-branch openkernel restriction
+  and **after** the DISTRO_* overrides have potentially forced proprietary.
+  Consequently, an architecture-level block will always result in
+  `proprietary_required`.
+- When False, the decision is based purely on the JSON feature flags
+  and legacy-branch logic, ignoring the architecture lists.
+- Note: architectures not listed in either set are treated as unknown;
+  they follow the generic logic and may get the open module if the JSON
+  permits.
+"""
 
 # Architectures that support open kernel modules (only used if ENABLE_ARCHITECTURE_CHECK is True)
 OPEN_CAPABLE_ARCHS = ("turing", "ampere", "ada", "blackwell")
+"""
+List of GPU architectures (detected from device name) that are allowed
+to use the open-source kernel module.  If a GPU's architecture is in
+this list and the JSON flags include `kernelopen`, the open module can
+be recommended (unless forced to proprietary by other settings).
+"""
+
 # Architectures that don't support open kernel modules (require proprietary)
 OPEN_UNSUPPORTED_ARCHS = (
     "maxwell", "pascal", "volta", "fermi", "kepler",
     "tesla2", "tesla1", "curie", "pre-curie", "unknown"
 )
+"""
+Architectures that are known to lack open-module support or are too
+old; they are always forced to the proprietary driver when
+ENABLE_ARCHITECTURE_CHECK is True.
+"""
 
 # ===== ARCHITECTURE MINIMUM DRIVER REQUIREMENTS =====
 ARCHITECTURE_MIN_DRIVER = {
@@ -102,15 +191,61 @@ ARCHITECTURE_MIN_DRIVER = {
     "pre-curie": "71",
     "unknown": "390",
 }
+"""
+The minimum NVIDIA driver branch (major version) required for each GPU
+architecture.  Used in compatibility checks when an override branch is
+requested or when calculating supported ranges.  If a requested branch
+is older than this minimum, the override is rejected and a fallback
+is used (if AUTO_FALLBACK is enabled).
+"""
 
 # ===== SAFETY CONFIGURATION =====
 ENABLE_STRICT_COMPATIBILITY = True
+"""
+(Currently not directly consumed in the code - placeholder for future
+strict driver-version matching logic.)
+"""
+
 REQUIRE_CONFIRMATION = False
+"""
+If True, the script would ask for user confirmation before installing;
+currently not implemented in this version, left for potential interactive
+use.
+"""
+
 AUTO_FALLBACK = True
+"""
+When an override (DISTRO_NON_LEGACY_DEFAULT_BRANCH or
+DISTRO_580_LEGACY_OVERRIDE_BRANCH) is incompatible with the GPU's
+architecture, this flag enables automatic fallback to a safe driver
+branch:
+  - For non-legacy overrides, the safe branch is the architecture's
+    minimum driver or the highest compatible legacy branch.
+  - For 580+ legacy overrides, the fallback prefers the original JSON
+    legacy branch if it is compatible; otherwise it uses the
+    architecture's minimum.
+If set to False, an incompatible override would be rejected without
+a fallback, leaving the driver selection unresolved (likely causing
+an error later).
+"""
+
 MAX_BRANCH_MISMATCH = 0
+"""
+(Intended for future use - could allow a tolerance when comparing
+requested vs. available branches, not currently implemented.)
+"""
 
 # Minimum legacy driver branch that is still supported (NVIDIA 0.51)
 min_supported_legacy_branch = 580
+"""
+Defines the cutoff for "supported" legacy branches.  GPUs with a
+legacy branch major version **below** this value are considered
+unsupported.  In most distros they cause the script to exit with an
+error (except Manjaro and Arch, which have special handling for older
+branches).  This value is also used in the architecture-vs-580 check:
+if a GPU's architecture is modern but the JSON erroneously lists a
+legacy branch < 580, the legacy flag is ignored.
+"""
 
 # Enhanced simulated GPU data with more detailed information
 simulated_gpus = {
