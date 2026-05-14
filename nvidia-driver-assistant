@@ -727,6 +727,35 @@ class Device(object):
         # 4. Architecture-based check
         if ENABLE_ARCHITECTURE_CHECK:
             if self.architecture in OPEN_CAPABLE_ARCHS:
+                # --- WORKAROUND: NVIDIA JSON bug (legacy 580 + kernelopen) ---
+                # As of 2025-01-01 (reported to NVIDIA, still unfixed as of 2025-05-14),
+                # some legacy 580 branch entries in supported-gpus.json incorrectly
+                # contain the "kernelopen" feature flag. Legacy 580 GPUs must NEVER
+                # use open kernel modules — they require proprietary drivers.
+                #
+                # This guard prevents a legacy 580 device from being assigned
+                # open_required, which would cause incorrect driver recommendations
+                # in mixed-GPU systems (e.g., legacy 580 + modern non-legacy card).
+                #
+                # TO REMOVE THIS WORKAROUND: Once NVIDIA removes the erroneous
+                # "kernelopen" flag from all legacy 580 entries in supported-gpus.json,
+                # delete this if-block. Step 3 above (ENABLE_LEGACY_OPENKERNEL_RESTRICTION)
+                # already provides the primary protection; this is an additional safeguard.
+                if self.original_legacy_branch:
+                    try:
+                        _legacy_major = int(self.original_legacy_branch.split('.')[0])
+                        if _legacy_major <= 580:
+                            self.driver_hint = proprietary_required
+                            logging.debug(
+                                "WORKAROUND: %s has legacy branch %s but kernelopen in JSON; "
+                                "forcing proprietary (NVIDIA JSON bug)",
+                                self.name, self.original_legacy_branch
+                            )
+                            return
+                    except ValueError:
+                        pass
+                # --- END WORKAROUND ---
+
                 if open_supported in flags:
                     self.driver_hint = default
                 else:
