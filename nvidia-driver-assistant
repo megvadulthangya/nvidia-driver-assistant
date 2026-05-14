@@ -267,31 +267,32 @@ Minimum legacy branch available in the Manjaro official repositories.
   official repositories.
 """
 
-ARCH_MIN_REPO_LEGACY_BRANCH = 470
+ARCH_MIN_REPO_LEGACY_BRANCH = None
 """
-Minimum legacy branch available in the Arch Linux community/official
-repositories.
+Minimum legacy branch available in the Arch Linux official/community
+repositories, or None if no legacy branches are packaged.
 
-- Legacy branches **below** this value are directed to AUR with
-  per-branch package names.
-- Legacy branches **>= this value** (but not in ARCH_AUR_ONLY_BRANCHES)
-  are considered available via Arch repos and merged into the normal
-  legacy branch selection.
-- Update this value when the Arch repos drop or add legacy driver
-  packages.
+- When set to an integer (e.g. 470): legacy branches **below** this
+  value are directed to AUR; branches **>= this value** (and not in
+  ARCH_AUR_ONLY_BRANCHES) are considered available via Arch repos.
+- When set to None (current default): **all** unsupported legacy
+  branches are directed to AUR, because Arch official repos only
+  ship the latest (non-legacy) driver.
+- Update this value if Arch starts packaging legacy branches again.
 """
 
 ARCH_AUR_ONLY_BRANCHES = (580,)
 """
-Legacy branches that are **not** in the official Arch repos despite
-being >= ARCH_MIN_REPO_LEGACY_BRANCH.  These are redirected to AUR.
+Legacy branches that pass the min_supported_legacy_branch check (i.e.
+they are "supported" legacy, not "unsupported") but are still NOT in
+the official Arch repos.  These are redirected to AUR.
 
-- Typically contains recently dropped branches that are above the
-  general AUR threshold but still not in the official repos.
+- This catches branches that are >= min_supported_legacy_branch and
+  therefore not in unsupported_devices, yet still require AUR.
 - Currently Arch only ships the latest driver (e.g. 595); branch 580
-  was moved to AUR.
-- Update this tuple when Arch drops or re-adds legacy branches.
-  Example: if branch 595 becomes legacy and AUR-only, add 595 here.
+  is the newest legacy branch and lives in AUR.
+- Update this tuple when new legacy branches appear or when Arch
+  adds/removes legacy packages from official repos.
 """
 
 # Enhanced simulated GPU data with more detailed information
@@ -2020,30 +2021,35 @@ def main():
                             pass
             unsupported_devices = []
 
-    # Arch: official repos threshold defined by ARCH_MIN_REPO_LEGACY_BRANCH; below that AUR
+    # Arch: legacy branch repo availability defined by ARCH_MIN_REPO_LEGACY_BRANCH
     elif system_info.id == "arch" and unsupported_devices:
-        ultra_devices = [
-            dev for dev in unsupported_devices
-            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < ARCH_MIN_REPO_LEGACY_BRANCH
-        ]
-        if ultra_devices:
-            print("\nUltra-legacy GPU(s) detected (branch < %d):" % ARCH_MIN_REPO_LEGACY_BRANCH)
-            for dev in ultra_devices:
+        # When ARCH_MIN_REPO_LEGACY_BRANCH is None, ALL unsupported legacy branches → AUR
+        if ARCH_MIN_REPO_LEGACY_BRANCH is None:
+            aur_devices = unsupported_devices
+        else:
+            aur_devices = [
+                dev for dev in unsupported_devices
+                if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < ARCH_MIN_REPO_LEGACY_BRANCH
+            ]
+        if aur_devices:
+            print("\nLegacy GPU(s) detected (requires AUR):")
+            for dev in aur_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
             branches = sorted({
                 _safe_branch_int(dev.original_legacy_branch)
-                for dev in ultra_devices
+                for dev in aur_devices
                 if _safe_branch_int(dev.original_legacy_branch) >= 0
             })
-            print("\nThese versions are no longer in official repositories.")
+            print("\nThese versions are no longer in official Arch repositories.")
             print("You can find them in the AUR (Arch User Repository) as:")
             for branch in branches:
                 print(f"  - nvidia-{branch}xx-dkms")
                 print(f"  - nvidia-{branch}xx-utils")
             print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
             exit(0)
         else:
-            # Branches >= ARCH_MIN_REPO_LEGACY_BRANCH (and not in ARCH_AUR_ONLY_BRANCHES) are community-supported in Arch repos
+            # Branches >= ARCH_MIN_REPO_LEGACY_BRANCH (and not in ARCH_AUR_ONLY_BRANCHES) are in Arch repos
             print(
                 "\nNote: NVIDIA officially considers these legacy branches unsupported, but they are available via Arch repositories.",
                 file=sys.stderr,
@@ -2115,7 +2121,11 @@ def main():
             _bl = None
         if _bl is not None and _bl in ARCH_AUR_ONLY_BRANCHES:
             print("\nArch official repositories no longer include branch %s.xx." % _bl)
-            print("Please use AUR: 'nvidia-%sxx-dkms' and 'nvidia-%sxx-utils'." % (_bl, _bl))
+            print("You can find it in the AUR (Arch User Repository) as:")
+            print("  - nvidia-%sxx-dkms" % _bl)
+            print("  - nvidia-%sxx-utils" % _bl)
+            print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
             exit(0)
 
     logging.debug("Recommended driver: %s" % driver)
