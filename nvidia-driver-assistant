@@ -1744,6 +1744,55 @@ def main():
     if not system_info:
         exit(1)
 
+    skip_legacy_fallback = False
+
+    # --- Mixed-GPU priority: open-capable device + legacy < 580 ---
+    # When the system has both an open-capable non-legacy GPU and a legacy GPU
+    # with branch < 580, we prefer the modern card. The legacy driver branch
+    # (e.g. 470) is too old to support the modern GPU at all, and you cannot
+    # install two different driver branches simultaneously. In this case:
+    #   - Recommend the latest open driver (for the modern card)
+    #   - Warn that the legacy card will not function with this driver
+    #   - Do NOT fall back to the legacy branch
+    #
+    # Legacy 580 is a special case: the 580 closed driver CAN drive both a
+    # legacy-580 card and a modern open-capable card, so that path is handled
+    # separately (force closed with branch 580).
+    if unsupported_devices and devices:
+        has_open_capable = any(
+            dev.driver_hint in (default, open_supported)
+            for dev in devices.values()
+        )
+        if has_open_capable:
+            legacy_names = [
+                f"{dev.name} (PCI ID: {dev.id}, legacy branch: {dev.original_legacy_branch})"
+                for dev in unsupported_devices
+            ]
+            if not suppress_warnings:
+                print(
+                    "\nNote: The following legacy GPU(s) are incompatible with the "
+                    "driver required by your modern GPU(s):"
+                )
+                for name in legacy_names:
+                    print(f"  {name}")
+                print(
+                    "\nThe legacy driver branch is too old to support your modern GPU. "
+                    "Recommending the latest driver for the modern card(s).\n"
+                    "The legacy GPU(s) listed above will NOT function with this driver.\n"
+                )
+            logging.debug(
+                "Mixed-GPU priority: discarding unsupported legacy devices in favour of "
+                "open-capable modern device(s). Legacy devices: %s",
+                ", ".join(legacy_names)
+            )
+            unsupported_devices = []
+            legacy_branch = None
+            driver = "open"
+            # Signal that we intentionally chose to skip legacy — prevents later
+            # fallback paths (e.g. manjaro_get_legacy_branch) from re-introducing
+            # a legacy branch that we already discarded.
+            skip_legacy_fallback = True
+
     # --- Distro-specific legacy handling ---
     # Manjaro: official repos support down to branch 390; below that AUR
     if system_info.id == "manjaro" and unsupported_devices:
@@ -1931,7 +1980,7 @@ def main():
     logging.debug("OS detected: %s" % system_info.id)
 
     # For Manjaro, if no branch locked yet, try to get from devices (fallback)
-    if not branch_locked and system_info.id == "manjaro" and devices:
+    if not branch_locked and not skip_legacy_fallback and system_info.id == "manjaro" and devices:
         manjaro_branch = manjaro_get_legacy_branch(devices)
         if manjaro_branch:
             branch_locked = manjaro_branch
