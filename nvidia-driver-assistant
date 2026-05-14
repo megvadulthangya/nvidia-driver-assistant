@@ -149,50 +149,181 @@ allowed.
   permits.
 """
 
-# Architectures that support open kernel modules (only used if ENABLE_ARCHITECTURE_CHECK is True)
-OPEN_CAPABLE_ARCHS = ("turing", "ampere", "ada", "blackwell")
-"""
-List of GPU architectures (detected from device name) that are allowed
-to use the open-source kernel module.  If a GPU's architecture is in
-this list and the JSON flags include `kernelopen`, the open module can
-be recommended (unless forced to proprietary by other settings).
-"""
+# ===== UNIFIED ARCHITECTURE REGISTRY =====
+#
+# Single source of truth for every GPU architecture.  Each entry maps
+# an architecture name to:
+#   is_open_capable  – True if open kernel modules are supported
+#   min_driver       – minimum NVIDIA driver branch (major version)
+#   patterns         – regex patterns used by _get_architecture_from_device_name()
+#                      to identify the architecture from a device name
+#
+# Derived constants (OPEN_CAPABLE_ARCHS, OPEN_UNSUPPORTED_ARCHS,
+# ARCHITECTURE_MIN_DRIVER) are computed from this registry so that
+# adding or changing an architecture only requires editing one place.
 
-# Architectures that don't support open kernel modules (require proprietary)
-OPEN_UNSUPPORTED_ARCHS = (
-    "maxwell", "pascal", "volta", "fermi", "kepler",
-    "tesla2", "tesla1", "curie", "pre-curie", "unknown"
-)
-"""
-Architectures that are known to lack open-module support or are too
-old; they are always forced to the proprietary driver when
-ENABLE_ARCHITECTURE_CHECK is True.
-"""
-
-# ===== ARCHITECTURE MINIMUM DRIVER REQUIREMENTS =====
-ARCHITECTURE_MIN_DRIVER = {
-    "blackwell": "550",
-    "ada": "525",
-    "ampere": "470",
-    "turing": "418",
-    "volta": "418",
-    "pascal": "390",
-    "maxwell": "390",
-    "kepler": "390",
-    "fermi": "390",
-    "tesla2": "340",
-    "tesla1": "304",
-    "curie": "96",
-    "pre-curie": "71",
-    "unknown": "390",
+ARCHITECTURE_REGISTRY = {
+    "blackwell": {
+        "is_open_capable": True,
+        "min_driver": 550,
+        "patterns": [
+            r'\bBLACKWELL\b',
+            r'\bGB\d',
+            r'\bRTX 50\d',
+            r'\b5090\b', r'\b5080\b', r'\b5070\b', r'\b5060\b', r'\b5050\b',
+        ],
+    },
+    "ada": {
+        "is_open_capable": True,
+        "min_driver": 525,
+        "patterns": [
+            r'\bADA\b',
+            r'\bAD\d|\bAD\b',
+            r'\bRTX 40\d',
+            r'\b4090\b', r'\b4080\b', r'\b4070\b', r'\b4060\b', r'\b4050\b',
+        ],
+    },
+    "ampere": {
+        "is_open_capable": True,
+        "min_driver": 470,
+        "patterns": [
+            r'\bAMPERE\b',
+            r'\bGA\d|\bGA\b',
+            r'\bRTX 30\d',
+            r'\b3090\b', r'\b3080\b', r'\b3070\b', r'\b3060\b', r'\b3050\b',
+        ],
+    },
+    "turing": {
+        "is_open_capable": True,
+        "min_driver": 418,
+        "patterns": [
+            r'\bTURING\b',
+            r'\bTU\d|\bTU\b',
+            r'\bRTX 20\d',
+            r'\bGTX 16\d',
+            r'\b2080\b', r'\b2070\b', r'\b2060\b', r'\b1660\b', r'\b1650\b',
+        ],
+    },
+    "volta": {
+        "is_open_capable": False,
+        "min_driver": 418,
+        "patterns": [
+            r'\bVOLTA\b',
+            r'\bGV\d|\bGV\b',
+            r'\bTITAN V\b',
+        ],
+    },
+    "pascal": {
+        "is_open_capable": False,
+        "min_driver": 390,
+        "patterns": [
+            r'\bPASCAL\b',
+            r'\bGP\d|\bGP\b',
+            r'\bGTX 10\d',
+            r'\b1080\b', r'\b1070\b', r'\b1060\b', r'\b1050\b',
+            r'\bP100\b', r'\bP40\b', r'\bP4\b',
+        ],
+    },
+    "maxwell": {
+        "is_open_capable": False,
+        "min_driver": 390,
+        "patterns": [
+            r'\bMAXWELL\b',
+            r'\bGM\d|\bGM\b',
+            r'\bGTX 9\d',
+            r'\bGTX 750\b', r'\bGTX 745\b', r'\bGTX 730\b',
+            r'\b980\b', r'\b970\b', r'\b960\b', r'\b750\b', r'\b950\b',
+            r'\bM40\b', r'\bM60\b', r'\bM6\b', r'\bM4\b',
+            r'\b800M\b', r'\bGM\b',
+        ],
+    },
+    "kepler": {
+        "is_open_capable": False,
+        "min_driver": 390,
+        "patterns": [
+            r'\bKEPLER\b',
+            r'\bGK\d|\bGK\b',
+            r'\bGTX 6\d',
+            r'\bGTX 780\b', r'\bGTX 770\b', r'\bGTX 760\b',
+            r'\b680\b', r'\b670\b', r'\b660\b', r'\b650\b',
+            r'\bK80\b', r'\bK40\b', r'\bK20\b', r'\bK10\b',
+            r'\b740A\b', r'\b740M\b', r'\b1292\b', r'\b610M\b', r'\bGK\b',
+        ],
+    },
+    "fermi": {
+        "is_open_capable": False,
+        "min_driver": 390,
+        "patterns": [
+            r'\bFERMI\b',
+            r'\bGF\d|\bGF\b',
+            r'\bGTX 5\d',
+            r'\b580\b', r'\b570\b', r'\b560\b', r'\b550\b', r'\b540\b',
+            r'\bM2050\b', r'\bM2070\b', r'\bM2075\b',
+            r'\b800A\b', r'\b705A\b', r'\b610\b', r'\bGF\b',
+        ],
+    },
+    "tesla2": {
+        "is_open_capable": False,
+        "min_driver": 340,
+        "patterns": [
+            r'\bTESLA\b',
+            r'\bGT200\b',
+            r'\bGTX 200\b', r'\bGTX 280\b', r'\bGTX 285\b', r'\bGTX 260\b',
+            r'\bC2050\b', r'\bC2075\b', r'\bM1060\b',
+        ],
+    },
+    "tesla1": {
+        "is_open_capable": False,
+        "min_driver": 304,
+        "patterns": [
+            r'\bTESLA\b',
+            r'\bG80\b', r'\bG90\b', r'\bG92\b', r'\bG94\b', r'\bG96\b', r'\bG98\b',
+            r'\bGTX 8\d', r'\bGTX 9\d',
+            r'\b8800\b', r'\b9800\b',
+            r'\bNVS\b', r'\b290\b', r'\bG84\b', r'\bG86\b',
+        ],
+    },
+    "curie": {
+        "is_open_capable": False,
+        "min_driver": 96,
+        "patterns": [
+            r'\bCURIE\b',
+            r'\bG70\b', r'\bG71\b', r'\bG72\b', r'\bG73\b',
+            r'\bGeForce 7\d',
+            r'\b7300\b', r'\b7600\b', r'\b7900\b', r'\b7800\b', r'\b7950\b',
+        ],
+    },
+    "pre-curie": {
+        "is_open_capable": False,
+        "min_driver": 71,
+        "patterns": [
+            r'\bNV\d',
+            r'\bGeForce 6\d',
+            r'\bGeForce FX\b',
+            r'\bGeForce 4\b',
+            r'\bGeForce 3\b',
+            r'\bGeForce 2\b',
+            r'\b6200\b', r'\b6800\b',
+            r'\bFX\b',
+        ],
+    },
+    "unknown": {
+        "is_open_capable": False,
+        "min_driver": 390,
+        "patterns": [],
+    },
 }
-"""
-The minimum NVIDIA driver branch (major version) required for each GPU
-architecture.  Used in compatibility checks when an override branch is
-requested or when calculating supported ranges.  If a requested branch
-is older than this minimum, the override is rejected and a fallback
-is used (if AUTO_FALLBACK is enabled).
-"""
+
+# Derived constants (read from ARCHITECTURE_REGISTRY)
+OPEN_CAPABLE_ARCHS = tuple(
+    arch for arch, info in ARCHITECTURE_REGISTRY.items() if info["is_open_capable"]
+)
+OPEN_UNSUPPORTED_ARCHS = tuple(
+    arch for arch, info in ARCHITECTURE_REGISTRY.items() if not info["is_open_capable"]
+)
+ARCHITECTURE_MIN_DRIVER = {
+    arch: str(info["min_driver"]) for arch, info in ARCHITECTURE_REGISTRY.items()
+}
 
 # ===== SAFETY CONFIGURATION =====
 AUTO_FALLBACK = True
@@ -525,171 +656,26 @@ class Device(object):
 
         # ARCHITECTURE VS 580: If architecture is modern but JSON says legacy (<580), prioritize architecture
         if self.architecture in OPEN_CAPABLE_ARCHS and self.original_legacy_branch:
-            try:
-                legacy_major = int(self.original_legacy_branch.split('.')[0])
-                if legacy_major < min_supported_legacy_branch:
-                    logging.warning(
-                        "Architecture override: %s (%s) marked as legacy branch %s, but architecture %s suggests modern card. Ignoring legacy flag.",
-                        self.name, self.id, self.original_legacy_branch, self.architecture
-                    )
-                    self.original_legacy_branch = None
-                    self.legacy_branch = None
-            except (ValueError, IndexError):
-                pass
+            legacy_major = _safe_branch_int(self.original_legacy_branch)
+            if legacy_major >= 0 and legacy_major < min_supported_legacy_branch:
+                logging.warning(
+                    "Architecture override: %s (%s) marked as legacy branch %s, but architecture %s suggests modern card. Ignoring legacy flag.",
+                    self.name, self.id, self.original_legacy_branch, self.architecture
+                )
+                self.original_legacy_branch = None
+                self.legacy_branch = None
 
     def _get_architecture_from_device_name(self, device_name):
-        """Extract architecture from GPU device name using strict regex boundaries"""
+        """Extract architecture from GPU device name using patterns from ARCHITECTURE_REGISTRY"""
         if not device_name:
             return "unknown"
 
         name_upper = device_name.upper()
 
-        arch_patterns = {
-            "blackwell": [
-                r'\bBLACKWELL\b',
-                r'\bGB\d',                      # GB202 etc.
-                r'\bRTX 50\d',                  # RTX 50xx
-                r'\b5090\b', r'\b5080\b', r'\b5070\b', r'\b5060\b', r'\b5050\b'
-            ],
-            "ada": [
-                r'\bADA\b',
-                r'\bAD\d|\bAD\b',                # AD102 or standalone AD
-                r'\bRTX 40\d',
-                r'\b4090\b', r'\b4080\b', r'\b4070\b', r'\b4060\b', r'\b4050\b'
-            ],
-            "ampere": [
-                r'\bAMPERE\b',
-                r'\bGA\d|\bGA\b',
-                r'\bRTX 30\d',
-                r'\b3090\b', r'\b3080\b', r'\b3070\b', r'\b3060\b', r'\b3050\b'
-            ],
-            "turing": [
-                r'\bTURING\b',
-                r'\bTU\d|\bTU\b',
-                r'\bRTX 20\d',
-                r'\bGTX 16\d',
-                r'\b2080\b', r'\b2070\b', r'\b2060\b', r'\b1660\b', r'\b1650\b'
-            ],
-            "volta": [
-                r'\bVOLTA\b',
-                r'\bGV\d|\bGV\b',
-                r'\bTITAN V\b'
-            ],
-            "pascal": [
-                r'\bPASCAL\b',
-                r'\bGP\d|\bGP\b',
-                r'\bGTX 10\d',
-                r'\b1080\b', r'\b1070\b', r'\b1060\b', r'\b1050\b',
-                r'\bP100\b', r'\bP40\b', r'\bP4\b'
-            ],
-            "maxwell": [
-                r'\bMAXWELL\b',
-                r'\bGM\d|\bGM\b',
-                r'\bGTX 9\d',
-                r'\bGTX 750\b', r'\bGTX 745\b', r'\bGTX 730\b',
-                r'\b980\b', r'\b970\b', r'\b960\b', r'\b750\b', r'\b950\b',
-                r'\bM40\b', r'\bM60\b', r'\bM6\b', r'\bM4\b',
-                r'\b800M\b', r'\bGM\b'
-            ],
-            "kepler": [
-                r'\bKEPLER\b',
-                r'\bGK\d|\bGK\b',
-                r'\bGTX 6\d',
-                r'\bGTX 780\b', r'\bGTX 770\b', r'\bGTX 760\b',
-                r'\b680\b', r'\b670\b', r'\b660\b', r'\b650\b',
-                r'\bK80\b', r'\bK40\b', r'\bK20\b', r'\bK10\b',
-                r'\b740A\b', r'\b740M\b', r'\b1292\b', r'\b610M\b', r'\bGK\b'
-            ],
-            "fermi": [
-                r'\bFERMI\b',
-                r'\bGF\d|\bGF\b',
-                r'\bGTX 5\d',
-                r'\b580\b', r'\b570\b', r'\b560\b', r'\b550\b', r'\b540\b',
-                r'\bM2050\b', r'\bM2070\b', r'\bM2075\b',
-                r'\b800A\b', r'\b705A\b', r'\b610\b', r'\bGF\b'
-            ],
-            "tesla2": [
-                r'\bTESLA\b',
-                r'\bGT200\b',
-                r'\bGTX 200\b', r'\bGTX 280\b', r'\bGTX 285\b', r'\bGTX 260\b',
-                r'\bC2050\b', r'\bC2075\b', r'\bM1060\b'
-            ],
-            "tesla1": [
-                r'\bTESLA\b',
-                r'\bG80\b', r'\bG90\b', r'\bG92\b', r'\bG94\b', r'\bG96\b', r'\bG98\b',
-                r'\bGTX 8\d', r'\bGTX 9\d',
-                r'\b8800\b', r'\b9800\b',
-                r'\bNVS\b', r'\b290\b', r'\bG84\b', r'\bG86\b'
-            ],
-            "curie": [
-                r'\bCURIE\b',
-                r'\bG70\b', r'\bG71\b', r'\bG72\b', r'\bG73\b',
-                r'\bGeForce 7\d',
-                r'\b7300\b', r'\b7600\b', r'\b7900\b', r'\b7800\b', r'\b7950\b'
-            ],
-            "pre-curie": [
-                r'\bNV\d',
-                r'\bGeForce 6\d',
-                r'\bGeForce FX\b',
-                r'\bGeForce 4\b',
-                r'\bGeForce 3\b',
-                r'\bGeForce 2\b',
-                r'\b6200\b', r'\b6800\b',
-                r'\bFX\b'
-            ],
-        }
-
-        for arch, patterns in arch_patterns.items():
-            for pattern in patterns:
+        for arch, info in ARCHITECTURE_REGISTRY.items():
+            for pattern in info["patterns"]:
                 if re.search(pattern, name_upper, re.IGNORECASE):
                     return arch
-
-        # Fallback using regex with word boundaries
-        if re.search(r'\bRTX\b', name_upper):
-            if re.search(r'\b50\d\d\b', name_upper):
-                return "blackwell"
-            if re.search(r'\b40\d\d\b', name_upper):
-                return "ada"
-            if re.search(r'\b30\d\d\b', name_upper):
-                return "ampere"
-            if re.search(r'\b20\d\d\b', name_upper):
-                return "turing"
-
-        if re.search(r'\bGTX\b', name_upper) or re.search(r'\bGEFORCE\b', name_upper):
-            if re.search(r'\b16\d\d\b', name_upper):
-                return "turing"
-            if re.search(r'\b10\d\d\b', name_upper):
-                return "pascal"
-            if re.search(r'\b9\d\d\b', name_upper):
-                return "maxwell"
-            if re.search(r'\b7\d\d\b', name_upper):
-                if re.search(r'\b750\b', name_upper) or re.search(r'\b745\b', name_upper) or re.search(r'\b730\b', name_upper):
-                    return "maxwell"
-                else:
-                    return "kepler"
-            if re.search(r'\b6\d\d\b', name_upper):
-                return "kepler"
-            if re.search(r'\b5\d\d\b', name_upper):
-                return "fermi"
-            if re.search(r'\b[432]\d\d\b', name_upper):
-                return "pre-curie"
-
-        if re.search(r'\bQUADRO\b', name_upper):
-            if re.search(r'\bRTX\b', name_upper):
-                if re.search(r'\b40\d\d\b', name_upper) or re.search(r'\bA\d', name_upper):
-                    return "ada"
-                if re.search(r'\b30\d\d\b', name_upper):
-                    return "ampere"
-                if re.search(r'\b20\d\d\b', name_upper):
-                    return "turing"
-            if re.search(r'\bP\d{3,4}\b', name_upper) or re.search(r'\bGP100\b', name_upper) or re.search(r'\bGP102\b', name_upper):
-                return "pascal"
-            if re.search(r'\bM\d{3,4}\b', name_upper) or re.search(r'\bGM200\b', name_upper) or re.search(r'\bGM204\b', name_upper):
-                return "maxwell"
-            if re.search(r'\bK\d{3,4}\b', name_upper) or re.search(r'\bGK', name_upper):
-                return "kepler"
-            if re.search(r'\b[56]000\b', name_upper):
-                return "fermi"
 
         return "unknown"
 
@@ -698,19 +684,18 @@ class Device(object):
             return True, "Unknown architecture, assuming compatibility"
 
         try:
-            requested = int(branch_major)
+            requested = _safe_branch_int(branch_major)
+            if requested < 0:
+                return False, f"Invalid branch number: {branch_major}"
             min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
-            min_required = int(min_driver)
+            min_required = _safe_branch_int(min_driver)
 
             if requested < min_required:
                 min_supported, max_supported = self._get_supported_range(legacy_override)
                 return False, f"{self.architecture} requires drivers from {min_supported}.xx to {max_supported}.xx (requested: {requested}.xx)"
 
             min_supported, max_supported = self._get_supported_range(legacy_override)
-            try:
-                max_allowed = int(max_supported)
-            except ValueError:
-                max_allowed = 999
+            max_allowed = _safe_branch_int(max_supported, default=999)
 
             if requested > max_allowed:
                 return False, f"{self.architecture} requires drivers from {min_supported}.xx to {max_supported}.xx (requested: {requested}.xx)"
@@ -724,12 +709,10 @@ class Device(object):
         min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
 
         if self.original_legacy_branch:
-            try:
-                max_driver = self.original_legacy_branch.split('.')[0]
-                int(max_driver)
-                return min_driver, max_driver
-            except (ValueError, IndexError):
-                return min_driver, "470"
+            max_driver_int = _safe_branch_int(self.original_legacy_branch)
+            if max_driver_int >= 0:
+                return min_driver, str(max_driver_int)
+            return min_driver, "470"
         elif legacy_override:
             return min_driver, "470"
         else:
@@ -739,13 +722,10 @@ class Device(object):
         min_driver, max_driver = self._get_supported_range(legacy_override)
 
         if self.original_legacy_branch:
-            try:
-                legacy_major = int(self.original_legacy_branch.split('.')[0])
-                min_required = int(ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390"))
-                if legacy_major >= min_required:
-                    return str(legacy_major)
-            except (ValueError, IndexError):
-                pass
+            legacy_major = _safe_branch_int(self.original_legacy_branch)
+            min_required = _safe_branch_int(ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390"))
+            if legacy_major >= 0 and legacy_major >= min_required:
+                return str(legacy_major)
 
         return min_driver
 
@@ -791,9 +771,9 @@ class Device(object):
 
         # 2. 580+ legacy cards
         if self.original_legacy_branch and DISTRO_580_LEGACY_OVERRIDE_BRANCH:
-            legacy_major = self.original_legacy_branch.split('.')[0]
-            try:
-                legacy_major_int = int(legacy_major)
+            legacy_major_int = _safe_branch_int(self.original_legacy_branch)
+            if legacy_major_int >= 0:
+                legacy_major = str(legacy_major_int)
                 if legacy_major_int >= 580:
                     compatible, message = self._check_driver_compatibility(
                         DISTRO_580_LEGACY_OVERRIDE_BRANCH,
@@ -836,57 +816,21 @@ class Device(object):
                             self.legacy_branch = safe_branch + ".00"
                             self.driver_hint = proprietary_required
                         return
-            except ValueError:
-                pass
 
         # 3. Legacy branch openkernel restriction
         if self.original_legacy_branch and ENABLE_LEGACY_OPENKERNEL_RESTRICTION:
-            legacy_major = self.original_legacy_branch.split('.')[0]
-            try:
-                legacy_major_int = int(legacy_major)
-                if legacy_major_int <= 580:
-                    self.driver_hint = proprietary_required
-                    logging.debug(
-                        "Legacy branch restriction: %s with legacy branch %s forced to proprietary",
-                        self.name, self.original_legacy_branch
-                    )
-                    return
-            except ValueError:
-                pass
+            legacy_major_int = _safe_branch_int(self.original_legacy_branch)
+            if legacy_major_int >= 0 and legacy_major_int <= 580:
+                self.driver_hint = proprietary_required
+                logging.debug(
+                    "Legacy branch restriction: %s with legacy branch %s forced to proprietary",
+                    self.name, self.original_legacy_branch
+                )
+                return
 
         # 4. Architecture-based check
         if ENABLE_ARCHITECTURE_CHECK:
             if self.architecture in OPEN_CAPABLE_ARCHS:
-                # --- WORKAROUND: NVIDIA JSON bug (legacy 580 + kernelopen) ---
-                # As of 2025-01-01 (reported to NVIDIA, still unfixed as of 2025-05-14),
-                # https://forums.developer.nvidia.com/t/nvidia-driver-assistant-0-23-44-01-1-and-later-suggests-wrong-drivers/356276
-                # some legacy 580 branch entries in supported-gpus.json incorrectly
-                # contain the "kernelopen" feature flag. Legacy 580 GPUs must NEVER
-                # use open kernel modules — they require proprietary drivers.
-                #
-                # This guard prevents a legacy 580 device from being assigned
-                # open_required, which would cause incorrect driver recommendations
-                # in mixed-GPU systems (e.g., legacy 580 + modern non-legacy card).
-                #
-                # TO REMOVE THIS WORKAROUND: Once NVIDIA removes the erroneous
-                # "kernelopen" flag from all legacy 580 entries in supported-gpus.json,
-                # delete this if-block. Step 3 above (ENABLE_LEGACY_OPENKERNEL_RESTRICTION)
-                # already provides the primary protection; this is an additional safeguard.
-                if self.original_legacy_branch:
-                    try:
-                        _legacy_major = int(self.original_legacy_branch.split('.')[0])
-                        if _legacy_major <= 580:
-                            self.driver_hint = proprietary_required
-                            logging.debug(
-                                "WORKAROUND: %s has legacy branch %s but kernelopen in JSON; "
-                                "forcing proprietary (NVIDIA JSON bug)",
-                                self.name, self.original_legacy_branch
-                            )
-                            return
-                    except ValueError:
-                        pass
-                # --- END WORKAROUND ---
-
                 if open_supported in flags:
                     self.driver_hint = default
                 else:
@@ -908,7 +852,8 @@ class Device(object):
                 logging.warning("device %s support level not flagged as %s" % (self.id, open_supported))
 
         if not self.driver_hint:
-            if self.legacy_branch and int(self.legacy_branch.split(".")[0]) <= 470:
+            lb = _safe_branch_int(self.legacy_branch)
+            if self.legacy_branch and lb >= 0 and lb <= 470:
                 self.driver_hint = proprietary_required
 
 
@@ -1053,15 +998,6 @@ def get_pci_device_info(dev_path):
         info["vendor"] = vendor
         info["device"] = device
 
-        uevent_path = os.path.join(dev_path, "uevent")
-        if os.path.exists(uevent_path):
-            with open(uevent_path, "r") as f:
-                for line in f:
-                    if line.startswith("PCI_ID="):
-                        info["pci_id"] = line.strip().split("=")[1]
-                    elif line.startswith("PCI_SUBSYS_ID="):
-                        info["pci_subsys_id"] = line.strip().split("=")[1]
-
     except Exception as e:
         logging.debug(f"get_pci_device_info(): Failed to read device info from {dev_path}: {e}")
 
@@ -1120,6 +1056,7 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
 
     logging.debug(f"select_best_gpu_match(): Found {len(matching_gpus)} matching GPUs")
     all_matching_names = [gpu["name"] for gpu in matching_gpus]
+    selected_gpu = None
 
     # 1. Match by exact subsystem vendor and device
     if pci_info and 'subsystem_vendor' in pci_info and 'subsystem_device' in pci_info:
@@ -1135,12 +1072,11 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
                 pci_device_norm = subsys_device_hex.lower().replace("0x", "")
                 if gpu_vendor_norm == pci_vendor_norm and gpu_device_norm == pci_device_norm:
                     logging.debug(f"select_best_gpu_match(): Exact subsystem match: {gpu['name']}")
-                    if not suppress_warnings and len(matching_gpus) > 1:
-                        show_multiple_match_warning(pci_info.get('device'), gpu["name"], all_matching_names)
-                    return gpu
+                    selected_gpu = gpu
+                    break
 
     # 2. Match by subsystem vendor only
-    if pci_info and 'subsystem_vendor' in pci_info:
+    if not selected_gpu and pci_info and 'subsystem_vendor' in pci_info:
         subsys_vendor_hex = pci_info.get('subsystem_vendor')
         for gpu in matching_gpus:
             gpu_subsys_vendor = gpu.get("subvendorid")
@@ -1149,93 +1085,86 @@ def select_best_gpu_match(matching_gpus, pci_info=None, suppress_warnings=False)
                 pci_vendor_norm = subsys_vendor_hex.lower().replace("0x", "")
                 if gpu_vendor_norm == pci_vendor_norm:
                     logging.debug(f"select_best_gpu_match(): Subsystem vendor match: {gpu['name']}")
-                    if not suppress_warnings and len(matching_gpus) > 1:
-                        show_multiple_match_warning(pci_info.get('device'), gpu["name"], all_matching_names)
-                    return gpu
+                    selected_gpu = gpu
+                    break
 
     # 3. Simulated name match
-    simulate_gpu = pci_info.get('simulate_gpu') if pci_info else None
-    if simulate_gpu and simulate_gpu in simulated_gpus:
-        expected_name = simulated_gpus[simulate_gpu]["expected_name"]
-        for gpu in matching_gpus:
-            if expected_name.lower() in gpu["name"].lower():
-                logging.debug(f"select_best_gpu_match(): Simulated name match: '{expected_name}' -> '{gpu['name']}'")
-                if not suppress_warnings and len(matching_gpus) > 1:
-                    show_multiple_match_warning(pci_info.get('device'), gpu["name"], all_matching_names)
-                return gpu
+    if not selected_gpu:
+        simulate_gpu = pci_info.get('simulate_gpu') if pci_info else None
+        if simulate_gpu and simulate_gpu in simulated_gpus:
+            expected_name = simulated_gpus[simulate_gpu]["expected_name"]
+            for gpu in matching_gpus:
+                if expected_name.lower() in gpu["name"].lower():
+                    logging.debug(f"select_best_gpu_match(): Simulated name match: '{expected_name}' -> '{gpu['name']}'")
+                    selected_gpu = gpu
+                    break
 
     # 4. Laptop vs desktop system matching
-    is_laptop_system_val = is_laptop_system()
-    mobile_gpus = []
-    desktop_gpus = []
-    for gpu in matching_gpus:
-        temp_device = Device(gpu["devid"], gpu["name"], gpu.get("features", []),
-                             gpu.get("legacybranch"), gpu.get("subvendorid"), gpu.get("subdevid"))
-        if temp_device.is_laptop_gpu:
-            mobile_gpus.append(gpu)
-        else:
-            desktop_gpus.append(gpu)
+    if not selected_gpu:
+        is_laptop_system_val = is_laptop_system()
+        mobile_gpus = []
+        desktop_gpus = []
+        for gpu in matching_gpus:
+            temp_device = Device(gpu["devid"], gpu["name"], gpu.get("features", []),
+                                 gpu.get("legacybranch"), gpu.get("subvendorid"), gpu.get("subdevid"))
+            if temp_device.is_laptop_gpu:
+                mobile_gpus.append(gpu)
+            else:
+                desktop_gpus.append(gpu)
 
-    if is_laptop_system_val and mobile_gpus:
-        matching_gpus = mobile_gpus[:]
-        logging.debug("select_best_gpu_match(): Laptop system detected, prioritizing mobile GPUs")
-    elif not is_laptop_system_val and desktop_gpus:
-        matching_gpus = desktop_gpus[:]
-        logging.debug("select_best_gpu_match(): Desktop system detected, prioritizing desktop GPUs")
+        if is_laptop_system_val and mobile_gpus:
+            matching_gpus = mobile_gpus[:]
+            logging.debug("select_best_gpu_match(): Laptop system detected, prioritizing mobile GPUs")
+        elif not is_laptop_system_val and desktop_gpus:
+            matching_gpus = desktop_gpus[:]
+            logging.debug("select_best_gpu_match(): Desktop system detected, prioritizing desktop GPUs")
 
-    if len(matching_gpus) == 1:
-        selected_gpu = matching_gpus[0]
-        if not suppress_warnings and len(all_matching_names) > 1:
-            show_multiple_match_warning(pci_info.get('device') if pci_info else None,
-                                        selected_gpu["name"], all_matching_names)
-        return selected_gpu
-
-    # 5. Prefer entries with legacybranch (more specific)
-    with_legacy = [g for g in matching_gpus if g.get("legacybranch")]
-    if with_legacy:
-        matching_gpus = with_legacy
         if len(matching_gpus) == 1:
             selected_gpu = matching_gpus[0]
-            if not suppress_warnings and len(all_matching_names) > 1:
-                show_multiple_match_warning(pci_info.get('device') if pci_info else None,
-                                            selected_gpu["name"], all_matching_names)
-            return selected_gpu
+
+    # 5. Prefer entries with legacybranch (more specific)
+    if not selected_gpu:
+        with_legacy = [g for g in matching_gpus if g.get("legacybranch")]
+        if with_legacy:
+            matching_gpus = with_legacy
+            if len(matching_gpus) == 1:
+                selected_gpu = matching_gpus[0]
 
     # 6. Prefer entries with more features
-    max_features = max(len(g.get("features", [])) for g in matching_gpus)
-    with_max_features = [g for g in matching_gpus if len(g.get("features", [])) == max_features]
-    if len(with_max_features) == 1:
-        selected_gpu = with_max_features[0]
-        if not suppress_warnings and len(all_matching_names) > 1:
-            show_multiple_match_warning(pci_info.get('device') if pci_info else None,
-                                        selected_gpu["name"], all_matching_names)
-        return selected_gpu
+    if not selected_gpu:
+        max_features = max(len(g.get("features", [])) for g in matching_gpus)
+        with_max_features = [g for g in matching_gpus if len(g.get("features", [])) == max_features]
+        if len(with_max_features) == 1:
+            selected_gpu = with_max_features[0]
+        else:
+            # 7. Name specificity score
+            def name_specificity_score(name):
+                name_lower = name.lower()
+                score = 100
+                if "unknown" in name_lower:
+                    score -= 50
+                if "generic" in name_lower:
+                    score -= 40
+                if "nvidia" in name_lower and len(name_lower.split()) < 3:
+                    score -= 30
+                if re.search(r'(gtx|rtx|quadro|tesla|titan)\s+\d+', name_lower):
+                    score += 30
+                if re.search(r'\d{4}', name_lower):
+                    score += 20
+                if "ti" in name_lower:
+                    score += 10
+                return score
 
-    # 7. Name specificity score
-    def name_specificity_score(name):
-        name_lower = name.lower()
-        score = 100
-        if "unknown" in name_lower:
-            score -= 50
-        if "generic" in name_lower:
-            score -= 40
-        if "nvidia" in name_lower and len(name_lower.split()) < 3:
-            score -= 30
-        if re.search(r'(gtx|rtx|quadro|tesla|titan)\s+\d+', name_lower):
-            score += 30
-        if re.search(r'\d{4}', name_lower):
-            score += 20
-        if "ti" in name_lower:
-            score += 10
-        return score
+            best_score = max(name_specificity_score(g["name"]) for g in with_max_features)
+            best_matches = [g for g in with_max_features if name_specificity_score(g["name"]) == best_score]
+            selected_gpu = best_matches[0]
 
-    best_score = max(name_specificity_score(g["name"]) for g in with_max_features)
-    best_matches = [g for g in with_max_features if name_specificity_score(g["name"]) == best_score]
-
-    selected_gpu = best_matches[0]
+    # Emit warning once based on the final selection
     if not suppress_warnings and len(all_matching_names) > 1:
-        show_multiple_match_warning(pci_info.get('device') if pci_info else None,
-                                    selected_gpu["name"], all_matching_names)
+        show_multiple_match_warning(
+            pci_info.get('device') if pci_info else None,
+            selected_gpu["name"], all_matching_names
+        )
     return selected_gpu
 
 
@@ -1467,33 +1396,32 @@ def check_legacy_devices(devices):
     for dev in devices.values():
         # Use original_legacy_branch from JSON, not modified by overrides
         if dev.original_legacy_branch:
-            branch_major = dev.original_legacy_branch.split(".")[0]
-            try:
-                branch_int = int(branch_major)
-                if branch_int >= min_supported_legacy_branch:
-                    if legacy_branch and legacy_branch != branch_major:
-                        logging.warning(
-                            "Multiple legacy branches detected: %s and %s"
-                            % (legacy_branch, branch_major)
-                        )
-                        legacy_branch = max(legacy_branch, branch_major, key=int)
-                    else:
-                        legacy_branch = branch_major
-                    logging.debug(
-                        "check_legacy_devices(): device %s (%s) requires supported legacy branch %s"
-                        % (dev.id, dev.name, branch_major)
-                    )
-                else:
-                    unsupported_devices.append(dev)
-                    logging.debug(
-                        "check_legacy_devices(): device %s (%s) requires unsupported legacy branch %s"
-                        % (dev.id, dev.name, branch_major)
-                    )
-            except ValueError:
-                # Invalid legacy branch format, treat as unsupported
+            branch_int = _safe_branch_int(dev.original_legacy_branch)
+            if branch_int < 0:
                 unsupported_devices.append(dev)
                 logging.debug(
                     "check_legacy_devices(): device %s (%s) has invalid legacy branch format %s"
+                    % (dev.id, dev.name, dev.original_legacy_branch)
+                )
+                continue
+            branch_major = str(branch_int)
+            if branch_int >= min_supported_legacy_branch:
+                if legacy_branch and legacy_branch != branch_major:
+                    logging.warning(
+                        "Multiple legacy branches detected: %s and %s"
+                        % (legacy_branch, branch_major)
+                    )
+                    legacy_branch = max(legacy_branch, branch_major, key=int)
+                else:
+                    legacy_branch = branch_major
+                logging.debug(
+                    "check_legacy_devices(): device %s (%s) requires supported legacy branch %s"
+                    % (dev.id, dev.name, branch_major)
+                )
+            else:
+                unsupported_devices.append(dev)
+                logging.debug(
+                    "check_legacy_devices(): device %s (%s) requires unsupported legacy branch %s"
                     % (dev.id, dev.name, branch_major)
                 )
 
@@ -1569,15 +1497,12 @@ def manjaro_get_legacy_branch(devices):
     highest_branch = None
     for dev in devices.values():
         if dev.original_legacy_branch:
-            branch_major = dev.original_legacy_branch.split('.')[0]
-            if highest_branch is None:
+            branch_int = _safe_branch_int(dev.original_legacy_branch)
+            if branch_int < 0:
+                continue
+            branch_major = str(branch_int)
+            if highest_branch is None or branch_int > _safe_branch_int(highest_branch):
                 highest_branch = branch_major
-            else:
-                try:
-                    if int(branch_major) > int(highest_branch):
-                        highest_branch = branch_major
-                except ValueError:
-                    pass
     return highest_branch
 
 
@@ -2004,35 +1929,31 @@ def main():
         print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch)
         branch_locked = legacy_branch
 
-    # --- Legacy branch + open driver sanity check ---
-    # Open kernel modules (nvidia-open) were first introduced in driver R515.43.04
-    # (2022-05-11). No legacy branch (≤ 580) has ever shipped open kernel modules,
-    # and no distribution packages them. In mixed-GPU systems a modern card
-    # (e.g. RTX 5070) may pull the recommendation toward "open", but if the final
-    # branch is a legacy one, the open flavour simply does not exist.
+    # --- Legacy branch + open driver catch-all (final safety net) ---
+    # This is the ONLY place where the ≤ 580 proprietary enforcement happens
+    # at the output level.  The per-device enforcement lives in
+    # Device._parse_features() step 3 (ENABLE_LEGACY_OPENKERNEL_RESTRICTION).
+    # This catch-all exists because in mixed-GPU systems a modern card
+    # (e.g. RTX 5070) may pull the aggregate recommendation toward "open",
+    # but the final branch_locked may resolve to a legacy value (≤ 580)
+    # for which no distribution ships open kernel modules.
     #
-    # Force "closed" whenever the effective branch is ≤ 580 and the recommendation
-    # is "open". This is safe: the modern card will still work with the proprietary
-    # driver; the legacy card requires it.
+    # Force "closed" whenever the effective branch is ≤ 580 and the
+    # recommendation is "open".  This is safe: the modern card will still
+    # work with the proprietary driver; the legacy card requires it.
     if driver == "open" and branch_locked:
-        try:
-            effective_branch = int(str(branch_locked).split('.')[0])
-            if effective_branch <= 580:
-                logging.debug(
-                    "Legacy branch %s does not support open kernel modules; "
-                    "switching recommendation from open to closed.", branch_locked
-                )
-                driver = "closed"
-        except ValueError:
-            pass
+        effective_branch = _safe_branch_int(str(branch_locked))
+        if effective_branch >= 0 and effective_branch <= 580:
+            logging.debug(
+                "Legacy branch %s does not support open kernel modules; "
+                "switching recommendation from open to closed.", branch_locked
+            )
+            driver = "closed"
 
     # Arch AUR-only branches fallback (branches in ARCH_AUR_ONLY_BRANCHES)
     if system_info.id == "arch" and branch_locked:
-        try:
-            _bl = int(str(branch_locked).split('.')[0])
-        except ValueError:
-            _bl = None
-        if _bl is not None and _bl in ARCH_AUR_ONLY_BRANCHES:
+        _bl = _safe_branch_int(str(branch_locked))
+        if _bl >= 0 and _bl in ARCH_AUR_ONLY_BRANCHES:
             print("\nArch official repositories no longer include branch %s.xx." % _bl)
             print("You can find it in the AUR (Arch User Repository) as:")
             print("  - nvidia-%sxx-dkms" % _bl)
