@@ -247,6 +247,53 @@ if a GPU's architecture is modern but the JSON erroneously lists a
 legacy branch < 580, the legacy flag is ignored.
 """
 
+# ===== DISTRO-SPECIFIC LEGACY BRANCH REPOSITORY THRESHOLDS =====
+#
+# These variables define which legacy driver branches are available in
+# each distribution's official repositories vs. requiring AUR (Arch User
+# Repository).  Distro maintainers should update these values when repo
+# contents change (e.g. when a new legacy branch is dropped or added).
+
+MANJARO_MIN_OFFICIAL_LEGACY_BRANCH = 390
+"""
+Minimum legacy branch available in the Manjaro official repositories.
+
+- Legacy branches **below** this value are directed to AUR with
+  per-branch package names (e.g. nvidia-340xx-dkms).
+- Legacy branches **>= this value** (but < min_supported_legacy_branch)
+  are considered available in the official Manjaro repos and the script
+  merges them into the normal legacy branch selection.
+- Update this value when Manjaro drops or adds legacy branches in its
+  official repositories.
+"""
+
+ARCH_MIN_REPO_LEGACY_BRANCH = 470
+"""
+Minimum legacy branch available in the Arch Linux community/official
+repositories.
+
+- Legacy branches **below** this value are directed to AUR with
+  per-branch package names.
+- Legacy branches **>= this value** (but not in ARCH_AUR_ONLY_BRANCHES)
+  are considered available via Arch repos and merged into the normal
+  legacy branch selection.
+- Update this value when the Arch repos drop or add legacy driver
+  packages.
+"""
+
+ARCH_AUR_ONLY_BRANCHES = (580,)
+"""
+Legacy branches that are **not** in the official Arch repos despite
+being >= ARCH_MIN_REPO_LEGACY_BRANCH.  These are redirected to AUR.
+
+- Typically contains recently dropped branches that are above the
+  general AUR threshold but still not in the official repos.
+- Currently Arch only ships the latest driver (e.g. 595); branch 580
+  was moved to AUR.
+- Update this tuple when Arch drops or re-adds legacy branches.
+  Example: if branch 595 becomes legacy and AUR-only, add 595 here.
+"""
+
 # Enhanced simulated GPU data with more detailed information
 simulated_gpus = {
     "545": {
@@ -1930,14 +1977,14 @@ def main():
             skip_legacy_fallback = True
 
     # --- Distro-specific legacy handling ---
-    # Manjaro: official repos support down to branch 390; below that AUR
+    # Manjaro: official repos support down to MANJARO_MIN_OFFICIAL_LEGACY_BRANCH; below that AUR
     if system_info.id == "manjaro" and unsupported_devices:
         ultra_devices = [
             dev for dev in unsupported_devices
-            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < 390
+            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < MANJARO_MIN_OFFICIAL_LEGACY_BRANCH
         ]
         if ultra_devices:
-            print("\nUltra-legacy GPU(s) detected (branch < 390):")
+            print("\nUltra-legacy GPU(s) detected (branch < %d):" % MANJARO_MIN_OFFICIAL_LEGACY_BRANCH)
             for dev in ultra_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
             branches = sorted({
@@ -1954,7 +2001,7 @@ def main():
             print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
             exit(0)
         else:
-            # Branches >= 390 (but < 580) are available in Manjaro official repos
+            # Branches >= MANJARO_MIN_OFFICIAL_LEGACY_BRANCH (but < min_supported_legacy_branch) are available in Manjaro official repos
             print(
                 "\nNote: These legacy branches are still available in the Manjaro official repositories.",
                 file=sys.stderr,
@@ -1973,14 +2020,14 @@ def main():
                             pass
             unsupported_devices = []
 
-    # Arch: official repos dropped 580, keep existing threshold 470 for AUR guidance
+    # Arch: official repos threshold defined by ARCH_MIN_REPO_LEGACY_BRANCH; below that AUR
     elif system_info.id == "arch" and unsupported_devices:
         ultra_devices = [
             dev for dev in unsupported_devices
-            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < 470
+            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < ARCH_MIN_REPO_LEGACY_BRANCH
         ]
         if ultra_devices:
-            print("\nUltra-legacy GPU(s) detected (branch < 470):")
+            print("\nUltra-legacy GPU(s) detected (branch < %d):" % ARCH_MIN_REPO_LEGACY_BRANCH)
             for dev in ultra_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
             branches = sorted({
@@ -1996,7 +2043,7 @@ def main():
             print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
             exit(0)
         else:
-            # Branches >= 470 but < 580 are community-supported in Arch repos
+            # Branches >= ARCH_MIN_REPO_LEGACY_BRANCH (and not in ARCH_AUR_ONLY_BRANCHES) are community-supported in Arch repos
             print(
                 "\nNote: NVIDIA officially considers these legacy branches unsupported, but they are available via Arch repositories.",
                 file=sys.stderr,
@@ -2060,11 +2107,16 @@ def main():
         except ValueError:
             pass
 
-    # Arch 580 special AUR fallback
-    if system_info.id == "arch" and str(branch_locked) == "580":
-        print("\nArch official repositories no longer include branch 580.xx.")
-        print("Please use AUR: 'nvidia-580xx-dkms' and 'nvidia-580xx-utils'.")
-        exit(0)
+    # Arch AUR-only branches fallback (branches in ARCH_AUR_ONLY_BRANCHES)
+    if system_info.id == "arch" and branch_locked:
+        try:
+            _bl = int(str(branch_locked).split('.')[0])
+        except ValueError:
+            _bl = None
+        if _bl is not None and _bl in ARCH_AUR_ONLY_BRANCHES:
+            print("\nArch official repositories no longer include branch %s.xx." % _bl)
+            print("Please use AUR: 'nvidia-%sxx-dkms' and 'nvidia-%sxx-utils'." % (_bl, _bl))
+            exit(0)
 
     logging.debug("Recommended driver: %s" % driver)
 
@@ -2099,6 +2151,9 @@ def main():
             "distro_580_legacy_override": DISTRO_580_LEGACY_OVERRIDE_BRANCH,
             "legacy_openkernel_restriction": ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
             "architecture_check_enabled": ENABLE_ARCHITECTURE_CHECK,
+            "manjaro_min_official_legacy_branch": MANJARO_MIN_OFFICIAL_LEGACY_BRANCH,
+            "arch_min_repo_legacy_branch": ARCH_MIN_REPO_LEGACY_BRANCH,
+            "arch_aur_only_branches": list(ARCH_AUR_ONLY_BRANCHES),
             "devices": device_list
         }
         print(json.dumps(result, indent=2))
