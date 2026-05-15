@@ -357,50 +357,68 @@ legacy branch < 580, the legacy flag is ignored.
 # ===== DISTRO-SPECIFIC LEGACY BRANCH REPOSITORY THRESHOLDS =====
 #
 # These variables define which legacy driver branches are available in
-# each distribution's official repositories vs. requiring AUR (Arch User
-# Repository).  Distro maintainers should update these values when repo
+# Central registry of distribution-specific properties for legacy branch
+# handling.  Distro maintainers should update entries here when repo
 # contents change (e.g. when a new legacy branch is dropped or added).
+#
+#   min_official_branch – minimum legacy branch in official repos (int)
+#                         or None when ALL legacy branches require AUR.
+#   aur_supported       – whether the distro has AUR access.
+#   aur_branches        – tuple of "supported" legacy branches that are
+#                         nonetheless AUR-only (not in official repos).
+#   kernel_substitution – whether install commands use a KERNEL placeholder
+#                         that must be replaced with the running kernel
+#                         package name (e.g. linux618 on Manjaro).
+#   branch_suffix       – suffix appended to the branch number in install
+#                         commands (e.g. "xx" → 580xx).
+#   aur_message_template – header printed before AUR package listing.
+#   aur_device_header    – header printed before the per-device listing.
+#   repo_available_note  – note printed when legacy branches are still
+#                          available in official repos.
 
-MANJARO_MIN_OFFICIAL_LEGACY_BRANCH = 390
-"""
-Minimum legacy branch available in the Manjaro official repositories.
+DISTRO_REGISTRY = {
+    "manjaro": {
+        "min_official_branch": 390,
+        "aur_supported": True,
+        "aur_branches": (),
+        "kernel_substitution": True,
+        "branch_suffix": "xx",
+        "aur_message_template": "These versions are no longer in official Manjaro repositories.",
+        "aur_device_header": "Ultra-legacy GPU(s) detected (branch < {min_branch}):",
+        "repo_available_note": (
+            "Note: These legacy branches are still available in the "
+            "Manjaro official repositories."
+        ),
+    },
+    "arch": {
+        "min_official_branch": None,
+        "aur_supported": True,
+        "aur_branches": (580,),
+        "kernel_substitution": False,
+        "branch_suffix": "xx",
+        "aur_message_template": "These versions are no longer in official Arch repositories.",
+        "aur_device_header": "Legacy GPU(s) detected (requires AUR):",
+        "repo_available_note": (
+            "Note: NVIDIA officially considers these legacy branches "
+            "unsupported, but they are available via Arch repositories."
+        ),
+    },
+    "ubuntu": {
+        "min_official_branch": None,
+        "aur_supported": False,
+        "aur_branches": (),
+        "kernel_substitution": False,
+        "branch_suffix": "",
+        "aur_message_template": None,
+        "aur_device_header": None,
+        "repo_available_note": None,
+    },
+}
 
-- Legacy branches **below** this value are directed to AUR with
-  per-branch package names (e.g. nvidia-340xx-dkms).
-- Legacy branches **>= this value** (but < min_supported_legacy_branch)
-  are considered available in the official Manjaro repos and the script
-  merges them into the normal legacy branch selection.
-- Update this value when Manjaro drops or adds legacy branches in its
-  official repositories.
-"""
-
-ARCH_MIN_REPO_LEGACY_BRANCH = None
-"""
-Minimum legacy branch available in the Arch Linux official/community
-repositories, or None if no legacy branches are packaged.
-
-- When set to an integer (e.g. 470): legacy branches **below** this
-  value are directed to AUR; branches **>= this value** (and not in
-  ARCH_AUR_ONLY_BRANCHES) are considered available via Arch repos.
-- When set to None (current default): **all** unsupported legacy
-  branches are directed to AUR, because Arch official repos only
-  ship the latest (non-legacy) driver.
-- Update this value if Arch starts packaging legacy branches again.
-"""
-
-ARCH_AUR_ONLY_BRANCHES = (580,)
-"""
-Legacy branches that pass the min_supported_legacy_branch check (i.e.
-they are "supported" legacy, not "unsupported") but are still NOT in
-the official Arch repos.  These are redirected to AUR.
-
-- This catches branches that are >= min_supported_legacy_branch and
-  therefore not in unsupported_devices, yet still require AUR.
-- Currently Arch only ships the latest driver (e.g. 595); branch 580
-  is the newest legacy branch and lives in AUR.
-- Update this tuple when new legacy branches appear or when Arch
-  adds/removes legacy packages from official repos.
-"""
+# Derived constants for backward compatibility (JSON output, etc.)
+MANJARO_MIN_OFFICIAL_LEGACY_BRANCH = DISTRO_REGISTRY["manjaro"]["min_official_branch"]
+ARCH_MIN_REPO_LEGACY_BRANCH = DISTRO_REGISTRY["arch"]["min_official_branch"]
+ARCH_AUR_ONLY_BRANCHES = DISTRO_REGISTRY["arch"]["aur_branches"]
 
 # Enhanced simulated GPU data with more detailed information
 simulated_gpus = {
@@ -566,8 +584,8 @@ branch_instructions = {
     "ubuntu-open": ["sudo apt-get install -y nvidia-open-BRANCH"],
     "arch-closed": ["Not supported"],
     "arch-open": ["Not supported"],
-    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia-BRANCHxx"],
-    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-BRANCHxx-open"],
+    "manjaro-closed": ["sudo pacman -S KERNEL-nvidia-BRANCH"],
+    "manjaro-open": ["sudo pacman -S KERNEL-nvidia-BRANCH-open"],
 }
 
 
@@ -594,6 +612,13 @@ class SystemInfo(object):
             logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
 
 
+def _safe_branch_int(branch_str, default=-1):
+    try:
+        return int(branch_str.split('.')[0])
+    except (ValueError, IndexError):
+        return default
+
+
 class Device(object):
     def __init__(self, id, name, features, legacy_branch, subvendorid=None, subdevid=None):
         super(Device, self).__init__()
@@ -609,6 +634,7 @@ class Device(object):
         self.subdevid = subdevid
         self.is_laptop_gpu = self._is_laptop_gpu(name)
         self._determine_architecture()
+        self.legacy_int = _safe_branch_int(self.original_legacy_branch) if self.original_legacy_branch else -1
         self._parse_features(features)
 
     def _is_laptop_gpu(self, name):
@@ -709,7 +735,7 @@ class Device(object):
         min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
 
         if self.original_legacy_branch:
-            max_driver_int = _safe_branch_int(self.original_legacy_branch)
+            max_driver_int = self.legacy_int
             if max_driver_int >= 0:
                 return min_driver, str(max_driver_int)
             return min_driver, "470"
@@ -722,7 +748,7 @@ class Device(object):
         min_driver, max_driver = self._get_supported_range(legacy_override)
 
         if self.original_legacy_branch:
-            legacy_major = _safe_branch_int(self.original_legacy_branch)
+            legacy_major = self.legacy_int
             min_required = _safe_branch_int(ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390"))
             if legacy_major >= 0 and legacy_major >= min_required:
                 return str(legacy_major)
@@ -771,7 +797,7 @@ class Device(object):
 
         # 2. 580+ legacy cards
         if self.original_legacy_branch and DISTRO_580_LEGACY_OVERRIDE_BRANCH:
-            legacy_major_int = _safe_branch_int(self.original_legacy_branch)
+            legacy_major_int = self.legacy_int
             if legacy_major_int >= 0:
                 legacy_major = str(legacy_major_int)
                 if legacy_major_int >= 580:
@@ -819,7 +845,7 @@ class Device(object):
 
         # 3. Legacy branch openkernel restriction
         if self.original_legacy_branch and ENABLE_LEGACY_OPENKERNEL_RESTRICTION:
-            legacy_major_int = _safe_branch_int(self.original_legacy_branch)
+            legacy_major_int = self.legacy_int
             if legacy_major_int >= 0 and legacy_major_int <= 580:
                 self.driver_hint = proprietary_required
                 logging.debug(
@@ -845,23 +871,7 @@ class Device(object):
         elif proprietary_supported in flags:
             self.driver_hint = proprietary_supported
         else:
-            if open_supported in flags:
-                self.driver_hint = default
-            else:
-                self.driver_hint = ""
-                logging.warning("device %s support level not flagged as %s" % (self.id, open_supported))
-
-        if not self.driver_hint:
-            lb = _safe_branch_int(self.legacy_branch)
-            if self.legacy_branch and lb >= 0 and lb <= 470:
-                self.driver_hint = proprietary_required
-
-
-def _safe_branch_int(branch_str, default=-1):
-    try:
-        return int(branch_str.split('.')[0])
-    except (ValueError, IndexError):
-        return default
+            self.driver_hint = default
 
 
 def get_distro(path=None):
@@ -1396,7 +1406,7 @@ def check_legacy_devices(devices):
     for dev in devices.values():
         # Use original_legacy_branch from JSON, not modified by overrides
         if dev.original_legacy_branch:
-            branch_int = _safe_branch_int(dev.original_legacy_branch)
+            branch_int = dev.legacy_int
             if branch_int < 0:
                 unsupported_devices.append(dev)
                 logging.debug(
@@ -1428,7 +1438,7 @@ def check_legacy_devices(devices):
     return legacy_branch, unsupported_devices
 
 
-def recommend_driver(sys_path=None, supported_gpus=None, use_driver_hints=False,
+def recommend_driver(sys_path=None, supported_gpus=None,
                      simulate_gpu=None, simulate_multi=None, suppress_warnings=False):
     """Recommend a driver using the available logic.
 
@@ -1495,15 +1505,37 @@ def manjaro_get_kernel_package():
 def manjaro_get_legacy_branch(devices):
     """Get legacy branch for Manjaro based on detected devices"""
     highest_branch = None
+    highest_int = -1
     for dev in devices.values():
-        if dev.original_legacy_branch:
-            branch_int = _safe_branch_int(dev.original_legacy_branch)
-            if branch_int < 0:
-                continue
-            branch_major = str(branch_int)
-            if highest_branch is None or branch_int > _safe_branch_int(highest_branch):
-                highest_branch = branch_major
+        if dev.original_legacy_branch and dev.legacy_int >= 0:
+            if dev.legacy_int > highest_int:
+                highest_int = dev.legacy_int
+                highest_branch = str(dev.legacy_int)
     return highest_branch
+
+
+def print_aur_instructions(distro_id, branches):
+    """Print AUR installation instructions using DISTRO_REGISTRY data"""
+    distro = DISTRO_REGISTRY.get(distro_id, {})
+    msg = distro.get("aur_message_template")
+    if msg:
+        print("\n%s" % msg)
+    print("You can find them in the AUR (Arch User Repository) as:")
+    for branch in branches:
+        print("  - nvidia-%sxx-dkms" % branch)
+        print("  - nvidia-%sxx-utils" % branch)
+    print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+    print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+
+
+def merge_unsupported_into_legacy(unsupported_devices, legacy_branch):
+    """Merge unsupported devices' legacy branches into the legacy_branch selection"""
+    for dev in unsupported_devices:
+        if dev.legacy_int >= 0:
+            branch_major = str(dev.legacy_int)
+            if legacy_branch is None or dev.legacy_int > _safe_branch_int(legacy_branch):
+                legacy_branch = branch_major
+    return legacy_branch
 
 
 def get_conditional_instructions(distro_id, version_id, instructions_dict):
@@ -1555,16 +1587,16 @@ def process_results(driver, distro_id, version_id, branch_id=None, install=False
             print("Error: failed to get the latest driver branch", file=sys.stderr)
             return False
 
-    if distro_id == "manjaro":
+    distro_info = DISTRO_REGISTRY.get(distro_id)
+    if distro_info and distro_info.get("kernel_substitution"):
         kernel_package = manjaro_get_kernel_package()
         if kernel_package:
             candidates = [line.replace("KERNEL", kernel_package) for line in candidates]
 
     if branch_id:
-        it = 0
-        for line in candidates:
-            candidates[it] = line.replace("BRANCH", branch_id)
-            it += 1
+        suffix = distro_info.get("branch_suffix", "") if distro_info else ""
+        effective_branch = str(branch_id) + suffix
+        candidates = [line.replace("BRANCH", effective_branch) for line in candidates]
 
     if install:
         print(
@@ -1746,7 +1778,6 @@ def main():
     driver, legacy_branch, unsupported_devices, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
-        use_driver_hints=True,
         simulate_gpu=simulate_gpu,
         simulate_multi=simulate_multi,
         suppress_warnings=suppress_warnings,
@@ -1815,95 +1846,30 @@ def main():
             # a legacy branch that we already discarded.
             skip_legacy_fallback = True
 
-    # --- Distro-specific legacy handling ---
-    # Manjaro: official repos support down to MANJARO_MIN_OFFICIAL_LEGACY_BRANCH; below that AUR
-    if system_info.id == "manjaro" and unsupported_devices:
-        ultra_devices = [
-            dev for dev in unsupported_devices
-            if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < MANJARO_MIN_OFFICIAL_LEGACY_BRANCH
-        ]
-        if ultra_devices:
-            print("\nUltra-legacy GPU(s) detected (branch < %d):" % MANJARO_MIN_OFFICIAL_LEGACY_BRANCH)
-            for dev in ultra_devices:
-                print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
-            branches = sorted({
-                _safe_branch_int(dev.original_legacy_branch)
-                for dev in ultra_devices
-                if _safe_branch_int(dev.original_legacy_branch) >= 0
-            })
-            print("\nThese versions are no longer in official Manjaro repositories.")
-            print("You can find them in the AUR (Arch User Repository) as:")
-            for branch in branches:
-                print(f"  - nvidia-{branch}xx-dkms")
-                print(f"  - nvidia-{branch}xx-utils")
-            print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
-            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
-            exit(0)
-        else:
-            # Branches >= MANJARO_MIN_OFFICIAL_LEGACY_BRANCH (but < min_supported_legacy_branch) are available in Manjaro official repos
-            print(
-                "\nNote: These legacy branches are still available in the Manjaro official repositories.",
-                file=sys.stderr,
-            )
-            # Merge these devices into the legacy_branch selection
-            for dev in unsupported_devices:
-                if dev.original_legacy_branch:
-                    branch_major = dev.original_legacy_branch.split('.')[0]
-                    if legacy_branch is None:
-                        legacy_branch = branch_major
-                    else:
-                        try:
-                            if int(branch_major) > int(legacy_branch):
-                                legacy_branch = branch_major
-                        except ValueError:
-                            pass
-            unsupported_devices = []
-
-    # Arch: legacy branch repo availability defined by ARCH_MIN_REPO_LEGACY_BRANCH
-    elif system_info.id == "arch" and unsupported_devices:
-        # When ARCH_MIN_REPO_LEGACY_BRANCH is None, ALL unsupported legacy branches → AUR
-        if ARCH_MIN_REPO_LEGACY_BRANCH is None:
+    # --- Distro-specific legacy handling (registry-driven) ---
+    distro_info = DISTRO_REGISTRY.get(system_info.id)
+    if distro_info and distro_info.get("aur_supported") and unsupported_devices:
+        min_branch = distro_info["min_official_branch"]
+        if min_branch is None:
             aur_devices = unsupported_devices
         else:
             aur_devices = [
                 dev for dev in unsupported_devices
-                if dev.original_legacy_branch and _safe_branch_int(dev.original_legacy_branch) < ARCH_MIN_REPO_LEGACY_BRANCH
+                if dev.legacy_int >= 0 and dev.legacy_int < min_branch
             ]
         if aur_devices:
-            print("\nLegacy GPU(s) detected (requires AUR):")
+            device_header = distro_info.get("aur_device_header", "Legacy GPU(s) detected:")
+            print("\n%s" % device_header.format(min_branch=min_branch))
             for dev in aur_devices:
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
-            branches = sorted({
-                _safe_branch_int(dev.original_legacy_branch)
-                for dev in aur_devices
-                if _safe_branch_int(dev.original_legacy_branch) >= 0
-            })
-            print("\nThese versions are no longer in official Arch repositories.")
-            print("You can find them in the AUR (Arch User Repository) as:")
-            for branch in branches:
-                print(f"  - nvidia-{branch}xx-dkms")
-                print(f"  - nvidia-{branch}xx-utils")
-            print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
-            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+            branches = sorted({dev.legacy_int for dev in aur_devices if dev.legacy_int >= 0})
+            print_aur_instructions(system_info.id, branches)
             exit(0)
         else:
-            # Branches >= ARCH_MIN_REPO_LEGACY_BRANCH (and not in ARCH_AUR_ONLY_BRANCHES) are in Arch repos
-            print(
-                "\nNote: NVIDIA officially considers these legacy branches unsupported, but they are available via Arch repositories.",
-                file=sys.stderr,
-            )
-            # Merge these devices into the legacy_branch selection
-            for dev in unsupported_devices:
-                if dev.original_legacy_branch:
-                    branch_major = dev.original_legacy_branch.split('.')[0]
-                    if legacy_branch is None:
-                        legacy_branch = branch_major
-                    else:
-                        try:
-                            if int(branch_major) > int(legacy_branch):
-                                legacy_branch = branch_major
-                        except ValueError:
-                            pass
+            repo_note = distro_info.get("repo_available_note")
+            if repo_note:
+                print("\n%s" % repo_note, file=sys.stderr)
+            legacy_branch = merge_unsupported_into_legacy(unsupported_devices, legacy_branch)
             unsupported_devices = []
 
     # Handle unsupported legacy devices for all other distros
@@ -1950,11 +1916,16 @@ def main():
             )
             driver = "closed"
 
-    # Arch AUR-only branches fallback (branches in ARCH_AUR_ONLY_BRANCHES)
-    if system_info.id == "arch" and branch_locked:
+    # AUR-only branches fallback (supported but not in official repos)
+    if not distro_info:
+        distro_info = DISTRO_REGISTRY.get(system_info.id)
+    if distro_info and branch_locked:
         _bl = _safe_branch_int(str(branch_locked))
-        if _bl >= 0 and _bl in ARCH_AUR_ONLY_BRANCHES:
-            print("\nArch official repositories no longer include branch %s.xx." % _bl)
+        aur_only = distro_info.get("aur_branches", ())
+        if _bl >= 0 and _bl in aur_only:
+            print("\n%s official repositories no longer include branch %s.xx." % (
+                system_info.id.capitalize(), _bl
+            ))
             print("You can find it in the AUR (Arch User Repository) as:")
             print("  - nvidia-%sxx-dkms" % _bl)
             print("  - nvidia-%sxx-utils" % _bl)
