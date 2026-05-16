@@ -1,0 +1,237 @@
+# Unified Architecture Registry
+#
+# Single source of truth for every GPU architecture.  Each entry maps
+# an architecture name to:
+#   is_open_capable  – True if open kernel modules are supported
+#   min_driver       – minimum NVIDIA driver branch (major version)
+#   patterns         – regex patterns used by _get_architecture_from_device_name()
+#                      to identify the architecture from a device name
+#
+# Derived constants (OPEN_CAPABLE_ARCHS, OPEN_UNSUPPORTED_ARCHS,
+# ARCHITECTURE_MIN_DRIVER) are computed from this registry so that
+# adding or changing an architecture only requires editing one place.
+
+blackwell:
+  # NVIDIA Blackwell architecture (RTX 50xx series, GB chips)
+  is_open_capable: true
+  min_driver: 550
+  patterns:
+    - '\bBLACKWELL\b'
+    - '\bGB\d'
+    - '\bRTX 50\d'
+    - '\b5090\b'
+    - '\b5080\b'
+    - '\b5070\b'
+    - '\b5060\b'
+    - '\b5050\b'
+
+ada:
+  # NVIDIA Ada Lovelace architecture (RTX 40xx series, AD chips)
+  is_open_capable: true
+  min_driver: 525
+  patterns:
+    - '\bADA\b'
+    - '\bAD\d|\bAD\b'
+    - '\bRTX 40\d'
+    - '\b4090\b'
+    - '\b4080\b'
+    - '\b4070\b'
+    - '\b4060\b'
+    - '\b4050\b'
+
+ampere:
+  # NVIDIA Ampere architecture (RTX 30xx series, GA chips)
+  is_open_capable: true
+  min_driver: 470
+  patterns:
+    - '\bAMPERE\b'
+    - '\bGA\d|\bGA\b'
+    - '\bRTX 30\d'
+    - '\b3090\b'
+    - '\b3080\b'
+    - '\b3070\b'
+    - '\b3060\b'
+    - '\b3050\b'
+
+turing:
+  # NVIDIA Turing architecture (RTX 20xx, GTX 16xx series, TU chips)
+  is_open_capable: true
+  min_driver: 418
+  patterns:
+    - '\bTURING\b'
+    - '\bTU\d|\bTU\b'
+    - '\bRTX 20\d'
+    - '\bGTX 16\d'
+    - '\b2080\b'
+    - '\b2070\b'
+    - '\b2060\b'
+    - '\b1660\b'
+    - '\b1650\b'
+
+volta:
+  # NVIDIA Volta architecture (Titan V, GV chips)
+  is_open_capable: false
+  min_driver: 418
+  patterns:
+    - '\bVOLTA\b'
+    - '\bGV\d|\bGV\b'
+    - '\bTITAN V\b'
+
+pascal:
+  # NVIDIA Pascal architecture (GTX 10xx series, GP chips)
+  is_open_capable: false
+  min_driver: 390
+  patterns:
+    - '\bPASCAL\b'
+    - '\bGP\d|\bGP\b'
+    - '\bGTX 10\d'
+    - '\b1080\b'
+    - '\b1070\b'
+    - '\b1060\b'
+    - '\b1050\b'
+    - '\bP100\b'
+    - '\bP40\b'
+    - '\bP4\b'
+
+maxwell:
+  # NVIDIA Maxwell architecture (GTX 9xx series, GM chips)
+  is_open_capable: false
+  min_driver: 390
+  patterns:
+    - '\bMAXWELL\b'
+    - '\bGM\d|\bGM\b'
+    - '\bGTX 9\d'
+    - '\bGTX 750\b'
+    - '\bGTX 745\b'
+    - '\bGTX 730\b'
+    - '\b980\b'
+    - '\b970\b'
+    - '\b960\b'
+    - '\b750\b'
+    - '\b950\b'
+    - '\bM40\b'
+    - '\bM60\b'
+    - '\bM6\b'
+    - '\bM4\b'
+    - '\b800M\b'
+    - '\bGM\b'
+
+kepler:
+  # NVIDIA Kepler architecture (GTX 6xx/7xx series, GK chips)
+  is_open_capable: false
+  min_driver: 390
+  patterns:
+    - '\bKEPLER\b'
+    - '\bGK\d|\bGK\b'
+    - '\bGTX 6\d'
+    - '\bGTX 780\b'
+    - '\bGTX 770\b'
+    - '\bGTX 760\b'
+    - '\b680\b'
+    - '\b670\b'
+    - '\b660\b'
+    - '\b650\b'
+    - '\bK80\b'
+    - '\bK40\b'
+    - '\bK20\b'
+    - '\bK10\b'
+    - '\b740A\b'
+    - '\b740M\b'
+    - '\b1292\b'
+    - '\b610M\b'
+    - '\bGK\b'
+
+fermi:
+  # NVIDIA Fermi architecture (GTX 5xx series, GF chips)
+  is_open_capable: false
+  min_driver: 390
+  patterns:
+    - '\bFERMI\b'
+    - '\bGF\d|\bGF\b'
+    - '\bGTX 5\d'
+    - '\b580\b'
+    - '\b570\b'
+    - '\b560\b'
+    - '\b550\b'
+    - '\b540\b'
+    - '\bM2050\b'
+    - '\bM2070\b'
+    - '\bM2075\b'
+    - '\b800A\b'
+    - '\b705A\b'
+    - '\b610\b'
+    - '\bGF\b'
+
+tesla2:
+  # NVIDIA Tesla 2.0 architecture (GT200 chips)
+  is_open_capable: false
+  min_driver: 340
+  patterns:
+    - '\bTESLA\b'
+    - '\bGT200\b'
+    - '\bGTX 200\b'
+    - '\bGTX 280\b'
+    - '\bGTX 285\b'
+    - '\bGTX 260\b'
+    - '\bC2050\b'
+    - '\bC2075\b'
+    - '\bM1060\b'
+
+tesla1:
+  # NVIDIA Tesla 1.0 architecture (G80/G9x chips)
+  is_open_capable: false
+  min_driver: 304
+  patterns:
+    - '\bTESLA\b'
+    - '\bG80\b'
+    - '\bG90\b'
+    - '\bG92\b'
+    - '\bG94\b'
+    - '\bG96\b'
+    - '\bG98\b'
+    - '\bGTX 8\d'
+    - '\bGTX 9\d'
+    - '\b8800\b'
+    - '\b9800\b'
+    - '\bNVS\b'
+    - '\b290\b'
+    - '\bG84\b'
+    - '\bG86\b'
+
+curie:
+  # NVIDIA Curie architecture (GeForce 7xxx series, G7x chips)
+  is_open_capable: false
+  min_driver: 96
+  patterns:
+    - '\bCURIE\b'
+    - '\bG70\b'
+    - '\bG71\b'
+    - '\bG72\b'
+    - '\bG73\b'
+    - '\bGeForce 7\d'
+    - '\b7300\b'
+    - '\b7600\b'
+    - '\b7900\b'
+    - '\b7800\b'
+    - '\b7950\b'
+
+pre-curie:
+  # NVIDIA pre-Curie architectures (GeForce 6xxx and older)
+  is_open_capable: false
+  min_driver: 71
+  patterns:
+    - '\bNV\d'
+    - '\bGeForce 6\d'
+    - '\bGeForce FX\b'
+    - '\bGeForce 4\b'
+    - '\bGeForce 3\b'
+    - '\bGeForce 2\b'
+    - '\b6200\b'
+    - '\b6800\b'
+    - '\bFX\b'
+
+unknown:
+  # Fallback for unrecognized architectures
+  is_open_capable: false
+  min_driver: 390
+  patterns: []

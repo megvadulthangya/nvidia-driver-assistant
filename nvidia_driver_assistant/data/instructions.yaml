@@ -1,0 +1,127 @@
+# Installation instructions and branch-specific installation instructions
+#
+# Each key is a "distro-flavor" combination (e.g. "amzn-closed", "debian-open").
+# Values are either:
+#   - A list of shell commands (for distros with a single instruction set)
+#   - A dict mapping version thresholds to lists of shell commands
+#     (for distros where instructions vary by release version)
+#
+# Placeholders:
+#   BRANCH  – replaced with the effective branch number + suffix
+#   KERNEL  – replaced with the running kernel package name (Manjaro)
+
+instructions:
+  amzn-closed:
+    - "sudo dnf -y module install nvidia-driver:latest-dkms"
+  amzn-open:
+    - "sudo dnf -y module install nvidia-driver:open-dkms"
+  debian-closed:
+    - "sudo apt-get install -Vy cuda-drivers"
+  debian-open:
+    - "sudo apt-get install -Vy nvidia-open"
+  fedora-closed:
+    - "sudo dnf -y install cuda-drivers"
+  fedora-open:
+    - "sudo dnf -y install nvidia-open"
+  azurelinux-closed:
+    - "Not supported"
+  azurelinux-open:
+    - "sudo tdnf -y install nvidia-open"
+  kylin-closed:
+    10:
+      - "sudo dnf -y module install nvidia-driver:latest-dkms"
+    11:
+      - "sudo dnf -y install cuda-drivers"
+  kylin-open:
+    10:
+      - "sudo dnf -y module install nvidia-driver:open-dkms"
+    11:
+      - "sudo dnf -y install nvidia-open"
+  opensuse-closed:
+    - "sudo zypper --verbose install -y cuda-drivers"
+  opensuse-open:
+    - "sudo zypper install -y nvidia-open"
+  sles-closed:
+    - "sudo zypper install -y cuda-drivers"
+  sles-open:
+    - "sudo zypper install -y nvidia-open"
+  rhel-closed:
+    7:
+      - "sudo dnf -y module install nvidia-driver:latest-dkms"
+    10:
+      - "sudo dnf -y install cuda-drivers"
+  rhel-open:
+    7:
+      - "sudo dnf -y module install nvidia-driver:open-dkms"
+    10:
+      - "sudo dnf -y install nvidia-open"
+  ubuntu-closed:
+    - "sudo apt-get install -y cuda-drivers"
+  ubuntu-open:
+    - "sudo apt-get install -y nvidia-open"
+  arch-closed:
+    - "sudo pacman -S nvidia-dkms"
+  arch-open:
+    - "sudo pacman -S nvidia-open-dkms"
+  manjaro-closed:
+    - "sudo pacman -S KERNEL-nvidia"
+  manjaro-open:
+    - "sudo pacman -S KERNEL-nvidia-open"
+
+branch_instructions:
+  amzn-closed:
+    - "sudo dnf -y module install nvidia-driver:BRANCH-dkms"
+  amzn-open:
+    - "sudo dnf -y module install nvidia-driver:BRANCH-open"
+  debian-closed:
+    - "sudo apt-get install -Vy cuda-drivers-BRANCH"
+  debian-open:
+    - "sudo apt-get install -Vy nvidia-open-BRANCH"
+  fedora-closed:
+    - "sudo dnf -y install cuda-drivers-BRANCH"
+  fedora-open:
+    - "sudo dnf -y install nvidia-open-BRANCH"
+  azurelinux-closed:
+    - "Not supported"
+  azurelinux-open:
+    - "sudo tdnf -y install nvidia-open-BRANCH"
+  kylin-closed:
+    10:
+      - "sudo dnf -y module install nvidia-driver:BRANCH-dkms"
+    11:
+      - "sudo dnf -y install cuda-drivers-BRANCH"
+  kylin-open:
+    10:
+      - "sudo dnf -y module install nvidia-driver:BRANCH-open"
+    11:
+      - "sudo dnf -y install nvidia-open-BRANCH"
+  opensuse-closed:
+    - "sudo zypper --verbose install -y cuda-drivers-BRANCH"
+  opensuse-open:
+    - "sudo zypper install -y nvidia-open-BRANCH"
+  sles-closed:
+    - "sudo zypper install -y cuda-drivers-BRANCH"
+  sles-open:
+    - "sudo zypper install -y nvidia-open-BRANCH"
+  rhel-closed:
+    7:
+      - "sudo dnf -y module install nvidia-driver:BRANCH-dkms"
+    10:
+      - "sudo dnf -y install cuda-drivers-BRANCH"
+  rhel-open:
+    7:
+      - "sudo dnf -y module install nvidia-driver:BRANCH-open"
+    10:
+      - "sudo dnf -y install nvidia-open-BRANCH"
+  ubuntu-closed:
+    - "sudo apt-get install -y cuda-drivers-BRANCH"
+  ubuntu-open:
+    - "sudo apt-get install -y nvidia-open-BRANCH"
+  arch-closed:
+    - "Not supported"
+  arch-open:
+    - "Not supported"
+  manjaro-closed:
+    - "sudo pacman -S KERNEL-nvidia-BRANCH"
+  manjaro-open:
+    - "sudo pacman -S KERNEL-nvidia-BRANCH-open"
