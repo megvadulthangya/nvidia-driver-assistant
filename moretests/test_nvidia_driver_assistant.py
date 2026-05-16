@@ -906,7 +906,9 @@ class DetectTest(unittest.TestCase):
         self.assertTrue(driver)
         self.assertEqual(driver, "open")
 
-        # Add legacy 470 GPUs – should flip to closed
+        # Add legacy GPUs: 304.xx (pre-curie, EOL) and 470.xx (kepler)
+        # Both are below min_supported_legacy_branch (580), so they are
+        # unsupported and do not flip the recommendation to closed.
         testbed.add_device("pci", "gpu_c", None, ["modalias", gpu_c], [])
         testbed.add_device("pci", "gpu_d", None, ["modalias", gpu_d], [])
 
@@ -917,7 +919,7 @@ class DetectTest(unittest.TestCase):
         else:
             driver2, legacy_branch2, unsupported2 = result2
         self.assertTrue(driver2)
-        self.assertEqual(driver2, "closed")
+        self.assertEqual(driver2, "open")
 
     def test_recommend_driver_mod(self):
         """Test recommend_driver() using extended JSON with module hints"""
@@ -930,7 +932,7 @@ class DetectTest(unittest.TestCase):
         testbed.add_device("pci", "gpu_a", None, ["modalias", gpu_a], [])
 
         with patch.object(nda, 'ubuntu_get_latest_driver_branch', return_value='575'):
-            result = nda.recommend_driver(testbed.get_sys_dir(), json_file, True)
+            result = nda.recommend_driver(testbed.get_sys_dir(), json_file)
         if len(result) == 4:
             driver, legacy_branch, unsupported, open_kernel = result
         else:
@@ -942,7 +944,7 @@ class DetectTest(unittest.TestCase):
         testbed.add_device("pci", "gpu_b", None, ["modalias", gpu_b], [])
 
         with patch.object(nda, 'ubuntu_get_latest_driver_branch', return_value='575'):
-            result2 = nda.recommend_driver(testbed.get_sys_dir(), json_file, True)
+            result2 = nda.recommend_driver(testbed.get_sys_dir(), json_file)
         if len(result2) == 4:
             driver2, legacy_branch2, unsupported2, open_kernel2 = result2
         else:
@@ -1004,7 +1006,7 @@ class DetectTest(unittest.TestCase):
                 testbed = generate_fake_hardware()
                 testbed.add_device("pci", "gpu_under_test", None, ["modalias", gpu_mod], [])
 
-                result = nda.recommend_driver(testbed.get_sys_dir(), json_file, True)
+                result = nda.recommend_driver(testbed.get_sys_dir(), json_file)
                 # We only care about the first element (the driver), ignore the rest
                 driver = result[0] if result else None
                 self.assertIsNotNone(driver, f"No driver recommended for GPU {gpu_mod}")
