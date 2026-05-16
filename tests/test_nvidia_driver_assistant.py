@@ -900,6 +900,9 @@ class DetectTest(unittest.TestCase):
         self.assertTrue(driver)
         self.assertTrue(driver == "open")
 
+        # Add legacy GPUs: 304.xx (pre-curie, EOL) and 470.xx (kepler)
+        # Both are below min_supported_legacy_branch (580), so they are
+        # unsupported and do not flip the recommendation to closed.
         self.umockdev.add_device(
             "pci", "legacy_gpu_modalias_1", None, ["modalias", legacy_gpu_modalias_1], []
         )
@@ -910,7 +913,7 @@ class DetectTest(unittest.TestCase):
         result = import_function("recommend_driver", *[self.umockdev.get_sys_dir(), json_file])
         driver, legacy_branch, unsupported, _ = self._unpack_recommend_driver(result)
         self.assertTrue(driver)
-        self.assertTrue(driver == "closed")
+        self.assertEqual(driver, "open")
 
     def test_recommend_driver_mod(self):
         """Test recommended_driver() using json driver support hints"""
@@ -919,7 +922,7 @@ class DetectTest(unittest.TestCase):
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
         result = import_function(
-            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
+            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file]
         )
         driver, legacy_branch, unsupported, _ = self._unpack_recommend_driver(result)
         self.assertTrue(driver)
@@ -933,11 +936,11 @@ class DetectTest(unittest.TestCase):
         )
 
         result = import_function(
-            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
+            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file]
         )
         driver, legacy_branch, unsupported, _ = self._unpack_recommend_driver(result)
         self.assertTrue(driver)
-        # Use the actual return value (open) as the current logic dictates
+        # Legacy GPUs are below 580 → unsupported, recommendation stays open
         self.assertEqual(driver, "open")
 
     def test_process_results(self):
@@ -947,7 +950,7 @@ class DetectTest(unittest.TestCase):
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
 
         result = import_function(
-            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file, True]
+            "recommend_driver", *[self.umockdev.get_sys_dir(), json_file]
         )
         driver, legacy_branch, unsupported, _ = self._unpack_recommend_driver(result)
         self.assertTrue(driver)
