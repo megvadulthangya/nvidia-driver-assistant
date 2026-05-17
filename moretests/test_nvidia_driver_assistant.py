@@ -41,6 +41,23 @@ root_dir = os.path.dirname(test_dir)
 
 # install python3-gi and umockdev gir1.2-umockdev-1.0 python3-aptdaemon python3-aptdaemon.test
 
+# ---------------------------------------------------------------------------
+# GPU modalias constants used throughout the tests
+#
+#   Alias  PCI ID   Name                          Arch       Legacy   Category
+#   -----  ------   ----------------------------  ---------  ------   --------
+#   gpu_a  0x2783   RTX 4070 SUPER                ada        -        modern, open-capable
+#   gpu_b  0x1D81   TITAN V                       volta      580.xx   legacy-580, kernelopen
+#   gpu_c  0x00C2   GeForce 6800 LE               pre-curie  304.xx   unsupported (<580)
+#   gpu_d  0x0FC6   GeForce GTX 650               kepler     470.xx   unsupported (<580)
+#   gpu_e  0x06C0   GeForce GTX 480               fermi      390.xx   unsupported (<580)
+#   gpu_f  0x1B06   GeForce GTX 1080 Ti           pascal     580.xx   legacy-580, kernelopen
+#   gpu_g  0x1DBA   Quadro GV100 / TITAN V JHH    volta      580.xx   legacy-580, kernelopen
+#   gpu_h  0x1380   GeForce GTX 750 Ti            maxwell    580.xx   legacy-580, kernelopen
+#
+# "unsupported (<580)" means legacy_branch < min_supported_legacy_branch (580),
+# so the device is placed on the unsupported_devices list by check_legacy_devices().
+# ---------------------------------------------------------------------------
 gpu_a = "pci:v000010DEd00002783sv000010DEsd000018FEbc03sc00i00"
 gpu_b = "pci:v000010DEd00001D81sv000010DEsd000018FEbc03sc00i00"
 gpu_c = "pci:v000010DEd000000C2sv000010DEsd000018FEbc03sc00i00"
@@ -802,94 +819,132 @@ class DetectTest(unittest.TestCase):
         )
         self.assertEqual(len(stderr), 0)
 
-    def test_driver_assistant_module_flavor(self):
-        """Test driver assistant --module-flavor argument"""
+    def _check_module_flavor(self, distro_id):
+        """Shared helper: validates --module-flavor accept/reject on a given distro."""
         testbed = generate_fake_hardware()
         testbed.add_device("pci", "gpu_a", None, ["modalias", gpu_a], [])
 
-        # This should fail
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--module-flavor", "Fopen"], testbed=testbed
-        )
-        self.assertTrue(len(stderr) > 0)
+        # Invalid values must be rejected (exit code != 0, stderr non-empty)
+        for bad in ("Fopen", "closedo"):
+            stdout, stderr = self.run_driver_assistant(
+                distro_id, additional_args=["--module-flavor", bad], testbed=testbed
+            )
+            self.assertTrue(len(stderr) > 0,
+                            f"--module-flavor {bad!r} should be rejected on {distro_id}")
 
-        # This should also fail
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--module-flavor", "closedo"], testbed=testbed
-        )
-        self.assertTrue(len(stderr) > 0)
+        # Valid values (case-insensitive) must be accepted
+        for good in ("open", "oPEn", "closed", "CloSed"):
+            stdout, stderr = self.run_driver_assistant(
+                distro_id, additional_args=["--module-flavor", good], testbed=testbed
+            )
+            self.assertEqual(len(stderr), 0,
+                             f"--module-flavor {good!r} should be accepted on {distro_id}")
 
-        # This should pass
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--module-flavor", "open"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
-
-        # Test case sensitivity
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--module-flavor", "oPEn"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
-
-        # This should also pass
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--module-flavor", "closed"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
-
-        # Test case sensitivity
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--module-flavor", "CloSed"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
+    def test_driver_assistant_module_flavor(self):
+        """Test --module-flavor accept/reject on fedora (primary distro)"""
+        self._check_module_flavor("fedora")
 
     def test_driver_assistant_module_flavor_alias(self):
-        """Test driver assistant --module-flavor argument with the ol oracle alias"""
-        testbed = generate_fake_hardware()
-        testbed.add_device("pci", "gpu_a", None, ["modalias", gpu_a], [])
-
-        # This should fail
-        stdout, stderr = self.run_driver_assistant(
-            "ol", additional_args=["--module-flavor", "Fopen"], testbed=testbed
-        )
-        self.assertTrue(len(stderr) > 0)
-
-        # This should also fail
-        stdout, stderr = self.run_driver_assistant(
-            "ol", additional_args=["--module-flavor", "closedo"], testbed=testbed
-        )
-        self.assertTrue(len(stderr) > 0)
-
-        # This should pass
-        stdout, stderr = self.run_driver_assistant(
-            "ol", additional_args=["--module-flavor", "open"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
-
-        # Test case sensitivity
-        stdout, stderr = self.run_driver_assistant(
-            "ol", additional_args=["--module-flavor", "oPEn"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
-
-        # This should also pass
-        stdout, stderr = self.run_driver_assistant(
-            "ol", additional_args=["--module-flavor", "closed"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
-
-        # Test case sensitivity
-        stdout, stderr = self.run_driver_assistant(
-            "ol", additional_args=["--module-flavor", "CloSed"], testbed=testbed
-        )
-        self.assertEqual(len(stderr), 0)
+        """Test --module-flavor accept/reject on ol (Oracle Linux alias for rhel)"""
+        self._check_module_flavor("ol")
 
     # -----------------------------------------------------------------
-    # Tests ported from suite_old to restore full coverage
+    # Mixed-GPU CLI tests (--simulate-mixed, --simulate-badmix)
+    # -----------------------------------------------------------------
+
+    def test_simulate_mixed(self):
+        """CLI test: --simulate-mixed (GTX 750 Ti [580] + RTX 5070 [modern])
+
+        Policy: Both GPUs are supported. The 750 Ti is on legacy branch 580
+        which does NOT support open kernel modules. The CLI safety-net
+        (cli.py lines 287-294) overrides the initial 'open' recommendation
+        to 'closed', and locks the branch to 580.
+
+        Expected JSON output:
+          module_flavor = "closed"
+          branch        = "580"
+          devices       = 2 (both present, none discarded)
+
+        Why it might fail:
+          - The safety-net override was removed or its branch threshold changed
+          - The legacy_branch detection in check_legacy_devices() is broken
+          - The simulated_gpus["mixed"] data in database.py was altered
+        """
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--simulate-mixed", "--json"]
+        )
+        self.assertEqual(len(stderr), 0, f"stderr not empty: {stderr}")
+        # stdout contains informational text before the JSON object;
+        # extract from the first '{' to the last '}'.
+        text = stdout.decode("utf-8", errors="replace")
+        json_start = text.index("{")
+        json_end = text.rindex("}") + 1
+        result = json.loads(text[json_start:json_end])
+        self.assertEqual(result["module_flavor"], "closed",
+                         "Mixed 580+modern must recommend closed (580 does not support open)")
+        self.assertEqual(result["branch"], "580",
+                         "Branch must be locked to 580 for the legacy GPU")
+        self.assertEqual(len(result["devices"]), 2,
+                         "Both GPUs must be present (none discarded)")
+
+    def test_simulate_badmix(self):
+        """CLI test: --simulate-badmix (GT 740A [470] + RTX 5070 [modern])
+
+        Policy: The 740A is on legacy branch 470, which is below
+        min_supported_legacy_branch (580). It is therefore unsupported.
+        The CLI mixed-GPU priority logic (cli.py lines 204-235) detects
+        that there is an open-capable modern device present and discards
+        the unsupported legacy device. The recommendation stays 'open'
+        with no branch lock.
+
+        Expected JSON output:
+          module_flavor = "open"
+          branch        = null (no legacy branch lock)
+          devices       = 2 (the 740A is still listed in devices, but
+                             removed from unsupported_devices internally)
+
+        Why it might fail:
+          - The mixed-GPU priority block in cli.py was removed or altered
+          - The has_open_capable check changed (e.g., driver_hint constants)
+          - The min_supported_legacy_branch was lowered below 470
+          - The simulated_gpus["badmix"] data in database.py was altered
+        """
+        stdout, stderr = self.run_driver_assistant(
+            "fedora", additional_args=["--simulate-badmix", "--json"]
+        )
+        self.assertEqual(len(stderr), 0, f"stderr not empty: {stderr}")
+        text = stdout.decode("utf-8", errors="replace")
+        json_start = text.index("{")
+        json_end = text.rindex("}") + 1
+        result = json.loads(text[json_start:json_end])
+        self.assertEqual(result["module_flavor"], "open",
+                         "Badmix (<580 legacy + modern) must recommend open")
+        self.assertIsNone(result["branch"],
+                          "No branch lock expected when legacy device is discarded")
+        self.assertEqual(len(result["devices"]), 2,
+                         "Both GPUs must be listed in the JSON output")
+
+    # -----------------------------------------------------------------
+    # recommend_driver() API-level tests
     # -----------------------------------------------------------------
 
     def test_recommend_driver(self):
-        """Test recommend_driver() with modern and legacy GPUs (vdpau hints)"""
+        """API test: recommend_driver() with modern GPU alone, then with sub-580 legacy GPUs
+
+        Phase 1: gpu_a (RTX 4070 SUPER, ada, modern open-capable) alone.
+          Expected: driver='open' (modern open-capable GPU, no legacy conflict).
+
+        Phase 2: gpu_a + gpu_c (6800 LE, 304.xx) + gpu_d (GTX 650, 470.xx).
+          Both legacy GPUs are below min_supported_legacy_branch (580), so they
+          land on unsupported_devices. recommend_driver() still returns 'open'
+          because unsupported legacy devices do NOT flip the recommendation at
+          the API level. The CLI would then discard them (see test_simulate_badmix).
+
+        Why it might fail:
+          - get_driver_from_json_hints() logic changed
+          - check_legacy_devices() threshold changed
+          - unsupported devices incorrectly forcing driver to 'closed'
+        """
         nda = self._load_main_module()
         json_file = get_json_file()
         testbed = generate_fake_hardware()
@@ -922,7 +977,22 @@ class DetectTest(unittest.TestCase):
         self.assertEqual(driver2, "open")
 
     def test_recommend_driver_mod(self):
-        """Test recommend_driver() using extended JSON with module hints"""
+        """API test: recommend_driver() with supported-gpus-mod.json (extended hints)
+
+        Phase 1: gpu_a (RTX 4070 SUPER) alone with mod JSON.
+          Expected: driver='open'.
+
+        Phase 2: gpu_a + gpu_b (TITAN V, legacy 580, kernelopen feature).
+          Both are supported (580 >= min_supported_legacy_branch). At the API
+          level, recommend_driver() returns 'open' because the kernelopen
+          feature is present on gpu_b. Note: the CLI would then apply the
+          safety-net and switch to 'closed' (see test_simulate_mixed for that
+          end-to-end test).
+
+        Why it might fail:
+          - supported-gpus-mod.json missing or structurally different
+          - get_driver_from_json_hints() module-hint parsing changed
+        """
         json_file = get_json_file("supported-gpus-mod.json")
         if not os.path.isfile(json_file):
             self.skipTest("supported-gpus-mod.json not found")
@@ -940,7 +1010,7 @@ class DetectTest(unittest.TestCase):
         self.assertTrue(driver)
         self.assertEqual(driver, "open")
 
-        # Add a GPU that requires proprietary driver, but mixed defaults to open
+        # gpu_b (TITAN V, 580 legacy, kernelopen) — API returns 'open'
         testbed.add_device("pci", "gpu_b", None, ["modalias", gpu_b], [])
 
         with patch.object(nda, 'ubuntu_get_latest_driver_branch', return_value='575'):
@@ -953,7 +1023,16 @@ class DetectTest(unittest.TestCase):
         self.assertEqual(driver2, "open")
 
     def test_recommend_driver_legacy_580(self):
-        """Test recommend_driver() for 580.xx legacy GPUs"""
+        """API test: recommend_driver() with three 580.xx legacy GPUs
+
+        gpu_f (GTX 1080 Ti), gpu_g (Quadro GV100), gpu_h (GTX 750 Ti) are all
+        on legacy branch 580, which is >= min_supported_legacy_branch.
+        Expected: driver is set, legacy_branch='580'.
+
+        Why it might fail:
+          - check_legacy_devices() branch parsing broken
+          - min_supported_legacy_branch raised above 580
+        """
         nda = self._load_main_module()
         json_file = get_json_file()
         testbed = generate_fake_hardware()
@@ -972,7 +1051,16 @@ class DetectTest(unittest.TestCase):
             self.assertIn(legacy_branch, ["580", "580.xx"])
 
     def test_malformed_json_legacy_open_kernel(self):
-        """Test malformed JSON path with legacy GPU – should not crash"""
+        """Resilience test: malformed JSON (single quotes, trailing commas)
+
+        Uses supported-gpus-bad/supported-gpus.json which contains syntax
+        errors. The resilient JSON parser (database.py) should sanitize and
+        load it successfully instead of crashing.
+
+        Why it might fail:
+          - The resilient JSON parser in database.py was removed
+          - The bad JSON file was changed to something unparseable even after sanitization
+        """
         nda = self._load_main_module()
         testbed = generate_fake_hardware()
         bad_json_file = os.path.join(root_dir, "supported-gpus-bad", "supported-gpus.json")
@@ -988,11 +1076,24 @@ class DetectTest(unittest.TestCase):
         self.assertTrue(driver is not None or unsupported is not None)
 
     # -----------------------------------------------------------------
-    # Expanded process_results test from suite_new (kept as is)
+    # Instruction-generation matrix test
     # -----------------------------------------------------------------
 
     def test_process_results(self):
-        """Test instruction printing for distro release specific ranges (all GPUs × all OSes)"""
+        """Matrix test: process_results() for every GPU × every distro
+
+        For each of the 8 GPU aliases, calls recommend_driver() to get the
+        driver type, then calls process_results() for every distro in
+        os_release_files, with branch=None and branch='570'.
+
+        This ensures that no GPU×distro×branch combination crashes or
+        returns empty instructions.
+
+        Why it might fail:
+          - A distro was added to os_release_files but not to instructions.yaml
+          - process_results() has a gap for a particular driver×distro combo
+          - supported-gpus-mod.json was altered so a GPU is no longer found
+        """
         json_file = get_json_file("supported-gpus-mod.json")
         if not os.path.isfile(json_file):
             self.skipTest("supported-gpus-mod.json not found")
@@ -1027,6 +1128,95 @@ class DetectTest(unittest.TestCase):
                                             f"on {distro_key} version {version} branch {branch}")
                         os.unlink(release_file.name)
 
+
+# =====================================================================
+# TEST CATALOGUE — what each test verifies and common failure causes
+# =====================================================================
+#
+# 1. test_get_distro
+#    Verifies get_distro() for every os-release fixture (13 distros).
+#    Also tests that an empty os-release file returns False.
+#    FAILS IF: os-release parsing logic changed, new distro added to
+#    os_release_files without matching parser support.
+#
+# 2. test_distro_override
+#    Verifies override_distro() with plain name, name:version, and
+#    case-sensitive input.
+#    FAILS IF: override_distro() parsing changed.
+#
+# 3. test_get_system_modaliases
+#    Collects modaliases from fake sysfs (umockdev) and checks the full
+#    set matches expectations.
+#    FAILS IF: get_system_modaliases() filtering logic changed, or the
+#    fake hardware setup was altered.
+#
+# 4. test_get_nvidia_devices
+#    Adds 3 GPUs (gpu_a, gpu_c, gpu_d) to fake sysfs and verifies
+#    get_nvidia_devices() finds exactly 3.
+#    FAILS IF: device matching in database.py changed.
+#
+# 5. test_driver_assistant_1
+#    CLI smoke test: single modern GPU (gpu_a) on fedora.
+#    FAILS IF: CLI crashes for basic single-GPU case.
+#
+# 6. test_driver_assistant_2_oracle_alias
+#    CLI smoke test: gpu_a on Oracle Linux (ol → rhel alias).
+#    FAILS IF: distro alias mapping broken.
+#
+# 7. test_driver_assistant_branch
+#    CLI: validates --branch argument (rejects <560, non-integer; accepts >=560).
+#    FAILS IF: branch validation logic changed.
+#
+# 8. test_driver_assistant_module_flavor
+#    CLI: validates --module-flavor on fedora (rejects invalid, accepts
+#    open/closed case-insensitively).
+#    FAILS IF: module-flavor validation changed.
+#
+# 9. test_driver_assistant_module_flavor_alias
+#    Same as #8 but on Oracle Linux (ol). Tests that distro aliases
+#    don't break module-flavor handling.
+#    FAILS IF: same as #8, or ol alias breaks something.
+#
+# 10. test_simulate_mixed  *** NEW ***
+#     CLI end-to-end: --simulate-mixed (GTX 750 Ti [580] + RTX 5070).
+#     Verifies the safety-net override: legacy branch 580 does not support
+#     open kernel modules, so the CLI switches from 'open' to 'closed'.
+#     Expected: module_flavor="closed", branch="580", 2 devices.
+#     FAILS IF: safety-net removed/threshold changed, legacy_branch detection
+#     broken, simulated_gpus["mixed"] altered.
+#
+# 11. test_simulate_badmix  *** NEW ***
+#     CLI end-to-end: --simulate-badmix (GT 740A [470] + RTX 5070).
+#     Verifies mixed-GPU priority: the 740A is unsupported (470 < 580),
+#     so the CLI discards it and recommends 'open' for the modern card.
+#     Expected: module_flavor="open", branch=null, 2 devices.
+#     FAILS IF: mixed-GPU priority block removed, has_open_capable check
+#     changed, min_supported_legacy_branch lowered below 470.
+#
+# 12. test_recommend_driver
+#     API-level: modern GPU alone → 'open'; modern + sub-580 legacy → still
+#     'open' at the API level (unsupported devices don't flip recommendation).
+#     FAILS IF: get_driver_from_json_hints() or check_legacy_devices() changed.
+#
+# 13. test_recommend_driver_mod
+#     API-level with supported-gpus-mod.json: modern alone → 'open';
+#     modern + TITAN V (580, kernelopen) → 'open' at API level.
+#     FAILS IF: mod JSON missing, module-hint parsing changed.
+#
+# 14. test_recommend_driver_legacy_580
+#     API-level: three 580.xx GPUs → legacy_branch='580'.
+#     FAILS IF: check_legacy_devices() branch parsing broken.
+#
+# 15. test_malformed_json_legacy_open_kernel
+#     Resilience: malformed JSON (single quotes, trailing commas) should
+#     not crash — the resilient parser sanitizes and loads it.
+#     FAILS IF: resilient JSON parser removed or bad file changed.
+#
+# 16. test_process_results
+#     Matrix test: every GPU × every distro × branch=None/570.
+#     Ensures process_results() never returns empty instructions.
+#     FAILS IF: instructions.yaml gap, new distro without instructions.
+# =====================================================================
 
 if __name__ == "__main__":
     loader = unittest.TestLoader()
