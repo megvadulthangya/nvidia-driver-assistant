@@ -1001,7 +1001,8 @@ class DetectTest(unittest.TestCase):
 
         gpu_list = [gpu_a, gpu_b, gpu_c, gpu_d, gpu_e, gpu_f, gpu_g, gpu_h]
 
-        with patch.object(nda, 'ubuntu_get_latest_driver_branch', return_value='575'):
+        # Helyes mock: a recommendation modul függvényét patcheljük, hogy elkerüljük az apt_pkg importálást
+        with patch('nvidia_driver_assistant.recommendation.ubuntu_get_latest_driver_branch', return_value='575'):
             for gpu_mod in gpu_list:
                 testbed = generate_fake_hardware()
                 testbed.add_device("pci", "gpu_under_test", None, ["modalias", gpu_mod], [])
