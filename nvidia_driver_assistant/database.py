@@ -263,8 +263,17 @@ def get_nvidia_devices(sys_path, supported_gpus, simulate_gpu=None, simulate_mul
             try:
                 gpus = list(json.load(stream)["chips"])
             except Exception as e:
-                logging.error("failed to load %s: %s" % (json_path, e))
-                return None
+                logging.warning("standard JSON parse failed for %s: %s – attempting recovery" % (json_path, e))
+                try:
+                    stream.seek(0)
+                    raw = stream.read()
+                    raw = raw.replace("'", '"')
+                    raw = re.sub(r',\s*([}\]])', r'\1', raw)
+                    gpus = list(json.loads(raw)["chips"])
+                    logging.info("successfully recovered malformed JSON from %s", json_path)
+                except Exception as e2:
+                    logging.error("failed to load %s: %s" % (json_path, e2))
+                    return None
 
             # Build lookup by device ID
             gpu_map = {}
