@@ -914,9 +914,9 @@ class DetectTest(unittest.TestCase):
                 if effective_branch <= 580:
                     driver = "closed"
 
-        Because the legacy branch 580 does NOT support open kernel
-        modules, the final recommendation is switched to 'closed' and
-        the branch is locked to '580'.
+        Because GPUs on the legacy 580 branch are not capable of using
+        open kernel modules, the final recommendation is switched to
+        'closed' and the branch is locked to '580'.
 
         Expected result (all distros)
         -----------------------------
@@ -940,9 +940,10 @@ class DetectTest(unittest.TestCase):
         print("# TEST: test_simulate_mixed")
         print("# Simulated system: GTX 750 Ti [legacy 580] + RTX 5070 [modern]")
         print("#")
-        print("# POLICY: The 580 legacy branch does NOT support open kernel")
-        print("#   modules. The CLI safety-net detects branch_locked=580 and")
-        print("#   overrides the initial 'open' recommendation to 'closed'.")
+        print("# POLICY: GPUs on the legacy 580 branch are not capable of")
+        print("#   using open kernel modules. The CLI safety-net detects")
+        print("#   branch_locked=580 and overrides the initial 'open'")
+        print("#   recommendation to 'closed'.")
         print("#   The branch is locked to 580. Both GPUs remain in the output.")
         print("#")
         print("# EXPECTED for all distros:")
@@ -975,7 +976,7 @@ class DetectTest(unittest.TestCase):
                 self.assertEqual(
                     result["module_flavor"], "closed",
                     f"[{distro}] Mixed 580+modern must recommend 'closed' "
-                    f"(580 legacy branch does not support open kernel modules). "
+                    f"(GPUs on legacy 580 branch are not capable of open kernel modules). "
                     f"Got: {result['module_flavor']!r}"
                 )
                 self.assertEqual(
@@ -1348,8 +1349,9 @@ class DetectTest(unittest.TestCase):
 # 10. test_simulate_mixed  *** NEW ***
 #     CLI end-to-end: --simulate-mixed across fedora, manjaro, debian, ubuntu.
 #     GTX 750 Ti [legacy 580] + RTX 5070 [modern open-capable].
-#     The 580 legacy branch does NOT support open kernel modules, so the
-#     CLI safety-net overrides 'open' → 'closed' and locks branch to 580.
+#     GPUs on the legacy 580 branch are not capable of using open kernel
+#     modules, so the CLI safety-net overrides 'open' → 'closed' and locks
+#     branch to 580.
 #     Prints verbose per-distro report: devices, expected vs actual, PASS/FAIL.
 #     Expected: module_flavor="closed", branch="580", 2 devices (all distros).
 #     FAILS IF: safety-net removed/threshold changed, legacy_branch detection
