@@ -1,0 +1,72 @@
+# Distribution Registry
+#
+# Central registry of distribution-specific properties for legacy branch
+# handling.  Distro maintainers should update entries here when repo
+# contents change (e.g. when a new legacy branch is dropped or added).
+#
+#   min_official_branch – minimum legacy branch in official repos (int)
+#                         or null when ALL legacy branches require AUR.
+#   aur_supported       – whether the distro has AUR access.
+#   aur_branches        – list of "supported" legacy branches that are
+#                         nonetheless AUR-only (not in official repos).
+#   kernel_substitution – whether install commands use a KERNEL placeholder
+#                         that must be replaced with the running kernel
+#                         package name (e.g. linux618 on Manjaro).
+#   branch_suffix       – suffix appended to the branch number in install
+#                         commands (e.g. "xx" → 580xx).
+#   aur_message_template – header printed before AUR package listing.
+#   aur_device_header    – header printed before the per-device listing.
+#   repo_available_note  – note printed when legacy branches are still
+#                          available in official repos.
+
+distro_registry:
+  manjaro:
+    min_official_branch: 390
+    aur_supported: true
+    aur_branches: []
+    kernel_substitution: true
+    branch_suffix: "xx"
+    aur_message_template: "These versions are no longer in official Manjaro repositories."
+    aur_device_header: "Ultra-legacy GPU(s) detected (branch < {min_branch}):"
+    repo_available_note: >-
+      Note: These legacy branches are still available in the
+      Manjaro official repositories.
+
+  arch:
+    min_official_branch: null
+    aur_supported: true
+    aur_branches:
+      - 580
+    kernel_substitution: false
+    branch_suffix: "xx"
+    aur_message_template: "These versions are no longer in official Arch repositories."
+    aur_device_header: "Legacy GPU(s) detected (requires AUR):"
+    repo_available_note: >-
+      Note: NVIDIA officially considers these legacy branches
+      unsupported, but they are available via Arch repositories.
+
+  ubuntu:
+    min_official_branch: null
+    aur_supported: false
+    aur_branches: []
+    kernel_substitution: false
+    branch_suffix: ""
+    aur_message_template: null
+    aur_device_header: null
+    repo_available_note: null
+
+# Accepted distribution aliases for --list-supported-distros
+supported_distros:
+  - amzn
+  - debian
+  - ubuntu
+  - fedora
+  - kylin
+  - azurelinux
+  - rhel
+  - rocky
+  - ol
+  - manjaro
+  - arch
+  - opensuse
+  - sles
