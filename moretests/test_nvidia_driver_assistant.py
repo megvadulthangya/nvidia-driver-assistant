@@ -850,79 +850,247 @@ class DetectTest(unittest.TestCase):
 
     # -----------------------------------------------------------------
     # Mixed-GPU CLI tests (--simulate-mixed, --simulate-badmix)
+    #
+    # These tests exercise the full CLI pipeline including the
+    # safety-net and mixed-GPU priority logic.  They use --json
+    # output for structured assertions and print a human-readable
+    # report so that an engineer reading the test output can
+    # immediately understand what was tested and what was expected.
     # -----------------------------------------------------------------
 
+    def _extract_json(self, raw_stdout):
+        """Extract the JSON object from CLI stdout (which may contain
+        informational text before/after the JSON)."""
+        text = raw_stdout.decode("utf-8", errors="replace")
+        json_start = text.index("{")
+        json_end = text.rindex("}") + 1
+        return json.loads(text[json_start:json_end])
+
+    def _print_simulate_report(self, scenario_name, distro, result, expected_flavor, expected_branch):
+        """Print a detailed human-readable report for a simulate test."""
+        actual_flavor = result["module_flavor"]
+        actual_branch = result["branch"]
+        devices = result["devices"]
+        match_flavor = "PASS" if actual_flavor == expected_flavor else "FAIL"
+        match_branch = "PASS" if actual_branch == expected_branch else "FAIL"
+
+        print(f"\n{'=' * 70}")
+        print(f"  SCENARIO: {scenario_name}")
+        print(f"  DISTRO:   {distro}")
+        print(f"{'=' * 70}")
+        print(f"  Devices in system:")
+        for dev in devices:
+            legacy_info = f" (legacy: {dev['legacy']})" if dev["legacy"] else " (modern, no legacy branch)"
+            print(f"    - {dev['name']} [{dev['architecture']}] PCI ID: {dev['pci_id']}{legacy_info}")
+        print(f"\n  Expected recommendation:")
+        print(f"    module_flavor = {expected_flavor!r}")
+        print(f"    branch        = {expected_branch!r}")
+        print(f"\n  Actual recommendation:")
+        print(f"    module_flavor = {actual_flavor!r}  [{match_flavor}]")
+        print(f"    branch        = {actual_branch!r}  [{match_branch}]")
+        print(f"    devices count = {len(devices)}")
+        print(f"{'=' * 70}")
+
     def test_simulate_mixed(self):
-        """CLI test: --simulate-mixed (GTX 750 Ti [580] + RTX 5070 [modern])
+        """CLI end-to-end: --simulate-mixed across multiple distros
 
-        Policy: Both GPUs are supported. The 750 Ti is on legacy branch 580
-        which does NOT support open kernel modules. The CLI safety-net
-        (cli.py lines 287-294) overrides the initial 'open' recommendation
-        to 'closed', and locks the branch to 580.
+        Scenario
+        --------
+        Two GPUs in the system:
+          1. NVIDIA GeForce GTX 750 Ti [maxwell]  — legacy branch 580.xx
+          2. NVIDIA GeForce RTX 5070   [blackwell] — modern, open-capable
 
-        Expected JSON output:
+        Policy (what nvidia-driver-assistant SHOULD do)
+        -----------------------------------------------
+        The GTX 750 Ti is on legacy branch 580, which is the minimum
+        supported legacy branch (min_supported_legacy_branch = 580).
+        Both devices are therefore "supported" and detected normally.
+
+        recommend_driver() returns driver='open' at the API level because
+        the modern GPU is open-capable.  However, the CLI applies a
+        safety-net (cli.py lines 287-294):
+
+            if driver == "open" and branch_locked:
+                if effective_branch <= 580:
+                    driver = "closed"
+
+        Because the legacy branch 580 does NOT support open kernel
+        modules, the final recommendation is switched to 'closed' and
+        the branch is locked to '580'.
+
+        Expected result (all distros)
+        -----------------------------
           module_flavor = "closed"
           branch        = "580"
-          devices       = 2 (both present, none discarded)
+          devices       = 2 (both GPUs present, none discarded)
 
-        Why it might fail:
-          - The safety-net override was removed or its branch threshold changed
-          - The legacy_branch detection in check_legacy_devices() is broken
-          - The simulated_gpus["mixed"] data in database.py was altered
+        Why it might fail
+        -----------------
+          - The safety-net override in cli.py was removed or its
+            threshold (currently <= 580) was changed
+          - check_legacy_devices() no longer detects 580 as a valid
+            legacy branch
+          - simulated_gpus["mixed"] in database.py was altered
         """
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--simulate-mixed", "--json"]
-        )
-        self.assertEqual(len(stderr), 0, f"stderr not empty: {stderr}")
-        # stdout contains informational text before the JSON object;
-        # extract from the first '{' to the last '}'.
-        text = stdout.decode("utf-8", errors="replace")
-        json_start = text.index("{")
-        json_end = text.rindex("}") + 1
-        result = json.loads(text[json_start:json_end])
-        self.assertEqual(result["module_flavor"], "closed",
-                         "Mixed 580+modern must recommend closed (580 does not support open)")
-        self.assertEqual(result["branch"], "580",
-                         "Branch must be locked to 580 for the legacy GPU")
-        self.assertEqual(len(result["devices"]), 2,
-                         "Both GPUs must be present (none discarded)")
+        # Test across several distros including ones not in os_release_files.
+        # We pass --distro directly to the CLI so we don't need os-release fixtures.
+        test_distros = ["fedora", "manjaro", "debian", "ubuntu"]
+
+        print("\n" + "#" * 70)
+        print("# TEST: test_simulate_mixed")
+        print("# Simulated system: GTX 750 Ti [legacy 580] + RTX 5070 [modern]")
+        print("#")
+        print("# POLICY: The 580 legacy branch does NOT support open kernel")
+        print("#   modules. The CLI safety-net detects branch_locked=580 and")
+        print("#   overrides the initial 'open' recommendation to 'closed'.")
+        print("#   The branch is locked to 580. Both GPUs remain in the output.")
+        print("#")
+        print("# EXPECTED for all distros:")
+        print("#   module_flavor = 'closed'")
+        print("#   branch        = '580'")
+        print("#   devices       = 2")
+        print("#" * 70)
+
+        for distro in test_distros:
+            with self.subTest(distro=distro):
+                command = [
+                    "%s/nvidia-driver-assistant" % root_dir,
+                    "--supported-gpus", get_json_file(),
+                    "--distro", distro,
+                    "--simulate-mixed", "--json",
+                ]
+                proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = proc.communicate()
+                self.assertEqual(len(stderr), 0, f"stderr not empty on {distro}: {stderr}")
+                result = self._extract_json(stdout)
+
+                self._print_simulate_report(
+                    scenario_name="--simulate-mixed (GTX 750 Ti [580] + RTX 5070)",
+                    distro=distro,
+                    result=result,
+                    expected_flavor="closed",
+                    expected_branch="580",
+                )
+
+                self.assertEqual(
+                    result["module_flavor"], "closed",
+                    f"[{distro}] Mixed 580+modern must recommend 'closed' "
+                    f"(580 legacy branch does not support open kernel modules). "
+                    f"Got: {result['module_flavor']!r}"
+                )
+                self.assertEqual(
+                    result["branch"], "580",
+                    f"[{distro}] Branch must be locked to '580' for the legacy GPU. "
+                    f"Got: {result['branch']!r}"
+                )
+                self.assertEqual(
+                    len(result["devices"]), 2,
+                    f"[{distro}] Both GPUs must be present (none discarded). "
+                    f"Got: {len(result['devices'])} device(s)"
+                )
+
+        print("\n  → All distros passed: module_flavor='closed', branch='580', 2 devices.")
 
     def test_simulate_badmix(self):
-        """CLI test: --simulate-badmix (GT 740A [470] + RTX 5070 [modern])
+        """CLI end-to-end: --simulate-badmix across multiple distros
 
-        Policy: The 740A is on legacy branch 470, which is below
-        min_supported_legacy_branch (580). It is therefore unsupported.
-        The CLI mixed-GPU priority logic (cli.py lines 204-235) detects
-        that there is an open-capable modern device present and discards
-        the unsupported legacy device. The recommendation stays 'open'
-        with no branch lock.
+        Scenario
+        --------
+        Two GPUs in the system:
+          1. GeForce GT 740A  [kepler]    — legacy branch 470.xx
+          2. NVIDIA GeForce RTX 5070 [blackwell] — modern, open-capable
 
-        Expected JSON output:
+        Policy (what nvidia-driver-assistant SHOULD do)
+        -----------------------------------------------
+        The GT 740A is on legacy branch 470, which is BELOW
+        min_supported_legacy_branch (580). It is therefore classified
+        as an "unsupported" device by check_legacy_devices().
+
+        The CLI mixed-GPU priority logic (cli.py lines 204-235) then
+        checks: are there any unsupported_devices AND is there at least
+        one open-capable modern device?  Both conditions are true, so:
+
+            unsupported_devices = []   # discarded
+            legacy_branch = None       # cleared
+            driver = "open"            # keep open for the modern card
+            skip_legacy_fallback = True
+
+        The legacy GPU is effectively "sacrificed" — it will NOT work
+        with the recommended driver, but the modern GPU gets the best
+        possible driver (open).
+
+        Expected result (all distros)
+        -----------------------------
           module_flavor = "open"
-          branch        = null (no legacy branch lock)
-          devices       = 2 (the 740A is still listed in devices, but
-                             removed from unsupported_devices internally)
+          branch        = null  (no legacy branch lock)
+          devices       = 2     (740A still listed but internally removed
+                                 from unsupported_devices)
 
-        Why it might fail:
+        Why it might fail
+        -----------------
           - The mixed-GPU priority block in cli.py was removed or altered
-          - The has_open_capable check changed (e.g., driver_hint constants)
-          - The min_supported_legacy_branch was lowered below 470
-          - The simulated_gpus["badmix"] data in database.py was altered
+          - has_open_capable check changed (driver_hint constants)
+          - min_supported_legacy_branch was lowered below 470
+          - simulated_gpus["badmix"] in database.py was altered
         """
-        stdout, stderr = self.run_driver_assistant(
-            "fedora", additional_args=["--simulate-badmix", "--json"]
-        )
-        self.assertEqual(len(stderr), 0, f"stderr not empty: {stderr}")
-        text = stdout.decode("utf-8", errors="replace")
-        json_start = text.index("{")
-        json_end = text.rindex("}") + 1
-        result = json.loads(text[json_start:json_end])
-        self.assertEqual(result["module_flavor"], "open",
-                         "Badmix (<580 legacy + modern) must recommend open")
-        self.assertIsNone(result["branch"],
-                          "No branch lock expected when legacy device is discarded")
-        self.assertEqual(len(result["devices"]), 2,
-                         "Both GPUs must be listed in the JSON output")
+        test_distros = ["fedora", "manjaro", "debian", "ubuntu"]
+
+        print("\n" + "#" * 70)
+        print("# TEST: test_simulate_badmix")
+        print("# Simulated system: GT 740A [legacy 470] + RTX 5070 [modern]")
+        print("#")
+        print("# POLICY: The 740A is on legacy 470, which is below the")
+        print("#   minimum supported legacy branch (580). It is unsupported.")
+        print("#   The CLI detects an open-capable modern GPU (RTX 5070) and")
+        print("#   discards the unsupported legacy device. The recommendation")
+        print("#   stays 'open' with no branch lock.")
+        print("#   The legacy GPU will NOT work with the recommended driver.")
+        print("#")
+        print("# EXPECTED for all distros:")
+        print("#   module_flavor = 'open'")
+        print("#   branch        = null")
+        print("#   devices       = 2")
+        print("#" * 70)
+
+        for distro in test_distros:
+            with self.subTest(distro=distro):
+                command = [
+                    "%s/nvidia-driver-assistant" % root_dir,
+                    "--supported-gpus", get_json_file(),
+                    "--distro", distro,
+                    "--simulate-badmix", "--json",
+                ]
+                proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = proc.communicate()
+                self.assertEqual(len(stderr), 0, f"stderr not empty on {distro}: {stderr}")
+                result = self._extract_json(stdout)
+
+                self._print_simulate_report(
+                    scenario_name="--simulate-badmix (GT 740A [470] + RTX 5070)",
+                    distro=distro,
+                    result=result,
+                    expected_flavor="open",
+                    expected_branch=None,
+                )
+
+                self.assertEqual(
+                    result["module_flavor"], "open",
+                    f"[{distro}] Badmix (<580 legacy + modern) must recommend 'open' "
+                    f"(unsupported legacy device discarded in favour of modern GPU). "
+                    f"Got: {result['module_flavor']!r}"
+                )
+                self.assertIsNone(
+                    result["branch"],
+                    f"[{distro}] No branch lock expected when legacy device is discarded. "
+                    f"Got: {result['branch']!r}"
+                )
+                self.assertEqual(
+                    len(result["devices"]), 2,
+                    f"[{distro}] Both GPUs must be listed in JSON output. "
+                    f"Got: {len(result['devices'])} device(s)"
+                )
+
+        print("\n  → All distros passed: module_flavor='open', branch=null, 2 devices.")
 
     # -----------------------------------------------------------------
     # recommend_driver() API-level tests
@@ -1178,18 +1346,22 @@ class DetectTest(unittest.TestCase):
 #    FAILS IF: same as #8, or ol alias breaks something.
 #
 # 10. test_simulate_mixed  *** NEW ***
-#     CLI end-to-end: --simulate-mixed (GTX 750 Ti [580] + RTX 5070).
-#     Verifies the safety-net override: legacy branch 580 does not support
-#     open kernel modules, so the CLI switches from 'open' to 'closed'.
-#     Expected: module_flavor="closed", branch="580", 2 devices.
+#     CLI end-to-end: --simulate-mixed across fedora, manjaro, debian, ubuntu.
+#     GTX 750 Ti [legacy 580] + RTX 5070 [modern open-capable].
+#     The 580 legacy branch does NOT support open kernel modules, so the
+#     CLI safety-net overrides 'open' → 'closed' and locks branch to 580.
+#     Prints verbose per-distro report: devices, expected vs actual, PASS/FAIL.
+#     Expected: module_flavor="closed", branch="580", 2 devices (all distros).
 #     FAILS IF: safety-net removed/threshold changed, legacy_branch detection
 #     broken, simulated_gpus["mixed"] altered.
 #
 # 11. test_simulate_badmix  *** NEW ***
-#     CLI end-to-end: --simulate-badmix (GT 740A [470] + RTX 5070).
-#     Verifies mixed-GPU priority: the 740A is unsupported (470 < 580),
-#     so the CLI discards it and recommends 'open' for the modern card.
-#     Expected: module_flavor="open", branch=null, 2 devices.
+#     CLI end-to-end: --simulate-badmix across fedora, manjaro, debian, ubuntu.
+#     GT 740A [legacy 470, unsupported] + RTX 5070 [modern open-capable].
+#     The 740A is below min_supported_legacy_branch (580), so the CLI
+#     discards it and recommends 'open' for the modern card, no branch lock.
+#     Prints verbose per-distro report: devices, expected vs actual, PASS/FAIL.
+#     Expected: module_flavor="open", branch=null, 2 devices (all distros).
 #     FAILS IF: mixed-GPU priority block removed, has_open_capable check
 #     changed, min_supported_legacy_branch lowered below 470.
 #
