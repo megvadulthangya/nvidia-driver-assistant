@@ -3,6 +3,38 @@
 This piece of software is meant to help users deciding on which NVIDIA graphics
 driver to install, based on the detected system's hardware.
 
+## Project structure
+
+The core logic lives in the `nvidia_driver_assistant/` Python package:
+
+```
+nvidia_driver_assistant/
+├── __init__.py          # Re-exports all public symbols (backward compat)
+├── cli.py               # argparse setup, main() entry point coordination
+├── config.py            # YAML loader, validator, configuration exports
+├── hardware.py          # PCI modalias collection, chassis detection
+├── system.py            # SystemInfo class, distro detection, alias mapping
+├── database.py          # GPU JSON loading, device matching, simulation data
+├── device.py            # Device class, architecture detection, _parse_features()
+├── recommendation.py    # Driver recommendation, legacy branch logic
+├── output.py            # Instruction display, formatting, driver installation
+└── data/
+    ├── architecture.yaml   # 14 GPU architectures (regex patterns, open-capable flags, min_driver)
+    ├── distro.yaml         # 13 distro definitions + supported_distros list
+    ├── overrides.yaml      # Control variables (min_supported_legacy_branch, etc.)
+    ├── instructions.yaml   # All distro × driver installation instruction templates
+    └── supported-gpus.json # Symlink to supported-gpus/supported-gpus.json
+```
+
+The top-level `nvidia-driver-assistant` script is a thin wrapper (~55 lines) that
+imports from the package, preserving backward compatibility with the existing CLI
+interface and the test harness's `importlib`-based import mechanism.
+
+### Dependencies
+
+- Python 3 with `gi` (GObject Introspection) for hardware detection
+- `pyyaml` — for loading the YAML configuration files
+
 ## Command line interface
 
 By default, the `nvidia-driver-assistant` command line tool will show the driver
@@ -22,9 +54,14 @@ Additional supported arguments:
 - `--distro [DISTRO]` - Specify a Linux distro using the `"DISTRO:VERSION"` or `"DISTRO"` pattern. Useful for testing
 - `--module-flavor [MODULE_FLAVOR]` - Specify a kernel module flavor (`open` or `closed`). Useful for testing
 - `--simulate-gpu [GPU]` - Simulate a GPU for testing without real hardware. Accepted values: `545`, `nvs290`, `7150m`, `740A`, `750`, `800A`, `4070`, `5070`, `unknown`
+- `--simulate-mixed` - Simulate a mixed-GPU system (GTX 750 Ti [legacy 580] + RTX 5070 [modern]). Useful for testing mixed-GPU policy
+- `--simulate-badmix` - Simulate a mixed-GPU system (GT 740A [legacy 470] + RTX 5070 [modern]). Useful for testing unsupported legacy + modern GPU policy
 - `--mhwd` - MHWD compatibility mode (Manjaro Hardware Detection); prints only the module flavor (`open`/`closed`) for consumption by `mhwd`
 - `--json` - Emit the recommendation as JSON, intended for installers and other automation
 - `--verbose` - Verbose output
+
+Note: `--simulate-gpu`, `--simulate-mixed`, and `--simulate-badmix` are mutually
+exclusive — only one may be specified at a time.
 
 Please see `nvidia-driver-assistant --help` for further details.
 
@@ -132,33 +169,75 @@ describing the recommendation. The shape is:
 This format is intended to be consumed by installers and scripts that need to
 choose the right NVIDIA driver package without parsing human-readable output.
 
+## Mixed-GPU policy
+
+When a system contains multiple NVIDIA GPUs from different generations, the
+tool applies special logic to determine the best recommendation:
+
+### Supported legacy (580) + modern GPU (`--simulate-mixed`)
+
+Example: GTX 750 Ti (legacy 580) + RTX 5070 (modern, open-capable).
+
+Both GPUs are supported (580 is the minimum supported legacy branch). The
+recommendation engine initially selects `open` for the modern GPU, but the
+CLI safety-net detects that the legacy 580 branch is active and that GPUs on
+this branch are **not capable** of using open kernel modules. The final
+recommendation is overridden to `closed` with the branch locked to `580`.
+
+### Unsupported legacy (<580) + modern GPU (`--simulate-badmix`)
+
+Example: GT 740A (legacy 470) + RTX 5070 (modern, open-capable).
+
+The 740A is on legacy branch 470, which is below `min_supported_legacy_branch`
+(580) and therefore unsupported. The CLI detects the presence of an
+open-capable modern GPU and discards the unsupported legacy device. The final
+recommendation is `open` with no branch lock. The legacy GPU will **not** work
+with the recommended driver.
+
 ## Test suite
 
 To use the test suite `nvidia-driver-assistant` comes with, you are going to
 need the following dependencies:
 
 - `python3-gi`
+- `pyyaml`
 - `umockdev` and `gir1.2-umockdev-1.0`
 
 There are two test directories:
 
-- `tests/` — the original/baseline test suite.
-- `moretests/` — an extended test suite that additionally exercises legacy
-  driver branch handling, Manjaro/Arch AUR fallbacks, the `--json` and
-  `--mhwd` output modes, and the `supported-gpus-bad/` database fixtures
-  (intentionally malformed input used to verify error handling).
+- `tests/` — the original/baseline test suite (11 tests). Covers distro
+  detection, modalias collection, device matching, CLI argument validation,
+  driver recommendation, and instruction generation.
+- `moretests/` — an extended test suite (16 tests) that additionally exercises
+  legacy driver branch handling, mixed-GPU policy (`--simulate-mixed`,
+  `--simulate-badmix`), Manjaro/Arch AUR fallbacks, the `--json` and `--mhwd`
+  output modes, and the `supported-gpus-bad/` database fixtures (intentionally
+  malformed input used to verify error handling). The mixed-GPU tests run
+  across multiple distros (fedora, manjaro, debian, ubuntu) and print verbose
+  reports explaining the policy, expected vs actual results, and PASS/FAIL
+  for each assertion.
 
 The test suites can be run as follows:
 
 ```shell
-$ PYTHONPATH=. tests/run --suite test_nvidia_driver_assistant.py
-$ PYTHONPATH=. moretests/run --suite test_nvidia_driver_assistant.py
+$ PYTHONPATH=. python3 tests/run --suite test_nvidia_driver_assistant.py
+$ PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
 ```
 
 Note: no actual NVIDIA hardware is required for testing, since umockdev is
-      used to simulate the presence of such devices. The `--simulate-gpu`
-      flag can additionally be used to drive the tool itself against a
-      simulated GPU from the command line.
+      used to simulate the presence of such devices. The `--simulate-gpu`,
+      `--simulate-mixed`, and `--simulate-badmix` flags can additionally be
+      used to drive the tool itself against simulated GPUs from the command
+      line:
+
+```shell
+# Single modern GPU on Ubuntu 24.04
+$ PYTHONPATH=. ./nvidia-driver-assistant --simulate-gpu ada --distro ubuntu:24.04
+
+# Mixed-GPU scenarios (JSON output)
+$ PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro fedora --json
+$ PYTHONPATH=. ./nvidia-driver-assistant --simulate-badmix --distro manjaro --json
+```
 
 
 ## Authors and acknowledgment
