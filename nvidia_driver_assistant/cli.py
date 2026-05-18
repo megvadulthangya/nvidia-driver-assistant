@@ -357,9 +357,10 @@ def main():
                     system_info.id.capitalize(), _bl
                 ))
                 pkg_tpl = distro_info.get("fallback_package_template", "nvidia-{branch}xx-dkms")
+                utils_tpl = distro_info.get("fallback_utils_template", "nvidia-{branch}xx-utils")
                 print("You can find it in the AUR (Arch User Repository) as:")
                 print("  - %s" % pkg_tpl.format(branch=_bl))
-                print("  - nvidia-%sxx-utils" % _bl)
+                print("  - %s" % utils_tpl.format(branch=_bl))
                 print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
                 print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
             else:

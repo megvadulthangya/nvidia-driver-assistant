@@ -47,9 +47,12 @@
 #   repo_available_note    – Note printed when legacy branches are still
 #                            available in official repos (i.e. the GPU's
 #                            branch >= min_official_branch).
-#   fallback_package_template – Package name pattern for fallback
-#                               instructions.  Use {branch} as placeholder.
-#                               Default: "nvidia-{branch}xx-dkms"
+#   fallback_package_template – Package name pattern for the main fallback
+#                               package (typically -dkms).  Use {branch} as
+#                               placeholder.  Default: "nvidia-{branch}xx-dkms"
+#   fallback_utils_template   – Package name pattern for the utils fallback
+#                               package.  Use {branch} as placeholder.
+#                               Default: "nvidia-{branch}xx-utils"
 
 distro_registry:
 
@@ -65,6 +68,7 @@ distro_registry:
     fallback_message: "These versions are no longer in official Manjaro repositories."
     fallback_device_header: "Ultra-legacy GPU(s) detected (branch < {min_branch}):"
     fallback_package_template: "nvidia-{branch}xx-dkms"
+    fallback_utils_template: "nvidia-{branch}xx-utils"
     repo_available_note: >-
       Note: These legacy branches are still available in the
       Manjaro official repositories.
@@ -80,6 +84,7 @@ distro_registry:
     fallback_message: "These versions are no longer in official Arch repositories."
     fallback_device_header: "Legacy GPU(s) detected (requires AUR):"
     fallback_package_template: "nvidia-{branch}xx-dkms"
+    fallback_utils_template: "nvidia-{branch}xx-utils"
     repo_available_note: >-
       Note: NVIDIA officially considers these legacy branches
       unsupported, but they are available via Arch repositories.
@@ -100,6 +105,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   debian:
@@ -112,6 +118,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   fedora:
@@ -124,6 +131,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   rhel:
@@ -136,6 +144,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   rocky:
@@ -148,6 +157,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   ol:
@@ -160,6 +170,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   amzn:
@@ -172,6 +183,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   opensuse:
@@ -184,6 +196,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   sles:
@@ -196,6 +209,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   kylin:
@@ -208,6 +222,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
   azurelinux:
@@ -220,6 +235,7 @@ distro_registry:
     fallback_message: null
     fallback_device_header: null
     fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
 # Accepted distribution aliases for --list-supported-distros
