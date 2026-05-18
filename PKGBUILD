@@ -113,6 +113,8 @@ package() {
   # 6. Documentation from git
   install -m644 "${srcdir}/${pkgname}/README.md" \
     "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -m644 "${srcdir}/${pkgname}/docs/Configuration.md" \
+    "${pkgdir}/usr/share/doc/${pkgname}/Configuration.md"
   install -m644 "${srcdir}/${pkgname}/COPYING" \
     "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
 
