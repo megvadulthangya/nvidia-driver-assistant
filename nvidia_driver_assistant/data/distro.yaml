@@ -28,9 +28,11 @@
 #                           580 branch is valid but AUR-only.)
 #
 #   nouveau_hint_below    – Legacy branch threshold (int) below which the
-#                           tool adds a Nouveau hint to the error message.
-#                           Devices on very old branches (e.g. < 340) may
-#                           still work with the open-source Nouveau driver.
+#                           tool adds a Nouveau hint.  Devices on legacy
+#                           branches below this value (following NVIDIA's
+#                           current policy: < 580) likely work with the
+#                           open-source Nouveau driver.  The hint is shown
+#                           alongside both AUR and error fallback messages.
 #                           Set to null to disable the hint.
 #
 #   kernel_substitution   – Whether install commands use a KERNEL placeholder
@@ -57,7 +59,7 @@ distro_registry:
     min_official_branch: 390
     fallback_method: "aur"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: true
     branch_suffix: "xx"
     fallback_message: "These versions are no longer in official Manjaro repositories."
@@ -72,7 +74,7 @@ distro_registry:
     fallback_method: "aur"
     fallback_branches:
       - 580
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: "xx"
     fallback_message: "These versions are no longer in official Arch repositories."
@@ -92,7 +94,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -104,7 +106,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -116,7 +118,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -128,7 +130,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -140,7 +142,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -152,7 +154,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -176,7 +178,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null
@@ -200,7 +202,7 @@ distro_registry:
     min_official_branch: null
     fallback_method: "error"
     fallback_branches: []
-    nouveau_hint_below: 340
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
     fallback_message: null

@@ -40,6 +40,26 @@ default_json_path = os.path.join(default_directory, "supported-gpus", "supported
 install_json_path = "/usr/share/nvidia-driver-assistant/supported-gpus/supported-gpus.json"
 
 
+def _print_nouveau_hint(devices, distro_info, dest=None):
+    """Print Nouveau hint if any device is below the distro's nouveau_hint_below threshold."""
+    if dest is None:
+        dest = sys.stdout
+    nouveau_below = distro_info.get("nouveau_hint_below") if distro_info else None
+    if not nouveau_below:
+        return
+    nouveau_devs = [
+        dev for dev in devices
+        if dev.legacy_int >= 0 and dev.legacy_int < nouveau_below
+    ]
+    if nouveau_devs:
+        print(
+            "\nNote: The open-source Nouveau driver may provide basic display support "
+            "for these older devices. Nouveau is usually included with your "
+            "distribution's default installation.",
+            file=dest,
+        )
+
+
 def _print_unsupported_error(unsupported_devices, distro_info):
     """Print error for unsupported legacy devices with optional Nouveau hint."""
     print(
@@ -56,21 +76,7 @@ def _print_unsupported_error(unsupported_devices, distro_info):
         "Please consider upgrading your hardware.",
         file=sys.stderr,
     )
-
-    # Nouveau hint for very old GPUs
-    nouveau_below = distro_info.get("nouveau_hint_below") if distro_info else None
-    if nouveau_below:
-        nouveau_devs = [
-            dev for dev in unsupported_devices
-            if dev.legacy_int >= 0 and dev.legacy_int < nouveau_below
-        ]
-        if nouveau_devs:
-            print(
-                "\nTip: The open-source Nouveau driver may provide basic display support "
-                "for these older devices. Nouveau is usually included with your "
-                "distribution's default installation.",
-                file=sys.stderr,
-            )
+    _print_nouveau_hint(unsupported_devices, distro_info, dest=sys.stderr)
 
 
 def main():
@@ -312,6 +318,7 @@ def main():
                 print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
             branches = sorted({dev.legacy_int for dev in unsupported_devices if dev.legacy_int >= 0})
             print_fallback_instructions(system_info.id, branches)
+            _print_nouveau_hint(unsupported_devices, distro_info)
             exit(0)
         elif unsupported_devices and fallback == "error":
             _print_unsupported_error(unsupported_devices, distro_info)
@@ -360,6 +367,14 @@ def main():
                     system_info.id.capitalize(), _bl
                 ))
                 print("\nYou may need to install this driver branch manually.")
+            # Nouveau hint for fallback branches below the threshold
+            nouveau_below = distro_info.get("nouveau_hint_below")
+            if nouveau_below and _bl < nouveau_below:
+                print(
+                    "\nNote: The open-source Nouveau driver may provide basic display support "
+                    "for GPUs on this legacy branch. Nouveau is usually included with your "
+                    "distribution's default installation."
+                )
             exit(0)
 
     logging.debug("Recommended driver: %s" % driver)
