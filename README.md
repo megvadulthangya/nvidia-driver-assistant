@@ -126,13 +126,11 @@ based on the `legacybranch` field in `supported-gpus.json`:
   flagged as ultra-legacy and the user is pointed at the matching
   `nvidia-<branch>xx-dkms` / `nvidia-<branch>xx-utils` packages in the
   AUR (with a note about enabling AUR support in Pamac).
-- On **Arch Linux**, GPUs whose legacy branch is `>= 470` are still available
-  through repository-supported community packages; GPUs whose legacy branch is
-  `< 470` are flagged as ultra-legacy and the user is pointed at the matching
-  `nvidia-<branch>xx-dkms` / `nvidia-<branch>xx-utils` packages in the AUR.
-  Branch `580` itself is no longer in the official Arch repositories, so the
-  tool explicitly redirects to `nvidia-580xx-dkms` / `nvidia-580xx-utils` in
-  the AUR for that case.
+- On **Arch Linux**, legacy drivers are not available in the official
+  repositories (`min_official_branch: null`). All legacy GPUs are directed to
+  the matching `nvidia-<branch>xx-dkms` / `nvidia-<branch>xx-utils` packages
+  in the AUR, including the `580` branch which is the minimum supported legacy
+  branch.
 - For all other supported distributions, unsupported legacy GPUs produce a
   descriptive error message advising a hardware upgrade.
 
