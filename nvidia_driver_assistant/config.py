@@ -48,7 +48,7 @@ def _validate_architecture(registry):
 
 def _validate_distro_registry(registry):
     """Validate the distro registry."""
-    required_keys = {"aur_supported", "kernel_substitution", "branch_suffix"}
+    required_keys = {"fallback_method", "kernel_substitution", "branch_suffix"}
     for distro, info in registry.items():
         if not isinstance(info, dict):
             raise ValueError("Distro '%s' must be a dict, got %s" % (distro, type(info).__name__))
@@ -129,8 +129,10 @@ def load_config():
     DISTRO_REGISTRY = {}
     for distro_name, info in raw_distro_registry.items():
         entry = dict(info)
-        # Convert aur_branches list to tuple
-        entry["aur_branches"] = tuple(entry.get("aur_branches", []) or [])
+        # Convert fallback_branches list to tuple
+        entry["fallback_branches"] = tuple(entry.get("fallback_branches", []) or [])
+        # Backward compat: expose aur_branches as alias for fallback_branches
+        entry["aur_branches"] = entry["fallback_branches"]
         DISTRO_REGISTRY[distro_name] = entry
 
     # Derived constants for backward compatibility
@@ -138,7 +140,7 @@ def load_config():
     arch_info = DISTRO_REGISTRY.get("arch", {})
     MANJARO_MIN_OFFICIAL_LEGACY_BRANCH = manjaro_info.get("min_official_branch")
     ARCH_MIN_REPO_LEGACY_BRANCH = arch_info.get("min_official_branch")
-    ARCH_AUR_ONLY_BRANCHES = arch_info.get("aur_branches", ())
+    ARCH_AUR_ONLY_BRANCHES = arch_info.get("fallback_branches", ())
 
     # Supported distros
     supported_distros = distro_data.get("supported_distros", [])

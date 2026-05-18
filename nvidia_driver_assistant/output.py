@@ -56,18 +56,34 @@ def show_multiple_match_warning(device_id, selected_name, all_names):
     print("=" * 70 + "\n", file=sys.stderr)
 
 
-def print_aur_instructions(distro_id, branches):
-    """Print AUR installation instructions using DISTRO_REGISTRY data"""
+def print_fallback_instructions(distro_id, branches):
+    """Print fallback installation instructions (AUR or manual) using DISTRO_REGISTRY data."""
     distro = DISTRO_REGISTRY.get(distro_id, {})
-    msg = distro.get("aur_message_template")
+    fallback = distro.get("fallback_method", "error")
+    msg = distro.get("fallback_message")
+    pkg_tpl = distro.get("fallback_package_template", "nvidia-{branch}xx-dkms")
+
     if msg:
         print("\n%s" % msg)
-    print("You can find them in the AUR (Arch User Repository) as:")
-    for branch in branches:
-        print("  - nvidia-%sxx-dkms" % branch)
-        print("  - nvidia-%sxx-utils" % branch)
-    print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
-    print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+
+    utils_tpl = distro.get("fallback_utils_template", "nvidia-{branch}xx-utils")
+
+    if fallback == "aur":
+        print("You can find them in the AUR (Arch User Repository) as:")
+        for branch in branches:
+            print("  - %s" % pkg_tpl.format(branch=branch))
+            print("  - %s" % utils_tpl.format(branch=branch))
+        print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+        print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+    else:
+        print("The following legacy driver branches are not available in the official repositories:")
+        for branch in branches:
+            print("  - branch %s" % branch)
+        print("\nYou may need to install these driver branches manually.")
+
+
+# Backward compatibility alias
+print_aur_instructions = print_fallback_instructions
 
 
 def get_conditional_instructions(distro_id, version_id, instructions_dict):

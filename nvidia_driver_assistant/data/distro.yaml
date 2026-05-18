@@ -4,55 +4,238 @@
 # handling.  Distro maintainers should update entries here when repo
 # contents change (e.g. when a new legacy branch is dropped or added).
 #
-#   min_official_branch – minimum legacy branch in official repos (int)
-#                         or null when ALL legacy branches require AUR.
-#   aur_supported       – whether the distro has AUR access.
-#   aur_branches        – list of "supported" legacy branches that are
-#                         nonetheless AUR-only (not in official repos).
-#   kernel_substitution – whether install commands use a KERNEL placeholder
-#                         that must be replaced with the running kernel
-#                         package name (e.g. linux618 on Manjaro).
-#   branch_suffix       – suffix appended to the branch number in install
-#                         commands (e.g. "xx" → 580xx).
-#   aur_message_template – header printed before AUR package listing.
-#   aur_device_header    – header printed before the per-device listing.
-#   repo_available_note  – note printed when legacy branches are still
-#                          available in official repos.
+# Per-distro fields:
+#
+#   min_official_branch   – Minimum legacy branch available in the distro's
+#                           official repositories (int), or null when NO
+#                           legacy branches are available in official repos.
+#                           GPUs requiring a branch >= this value can be
+#                           served from the official repos.  GPUs below
+#                           this threshold are handled by fallback_method.
+#
+#   fallback_method       – What to do when a GPU's legacy branch is below
+#                           min_official_branch (or when min_official_branch
+#                           is null):
+#                             "aur"   – direct users to AUR packages
+#                             "error" – print unsupported-hardware error
+#
+#   fallback_branches     – List of legacy branches that ARE supported by
+#                           the tool but are NOT in the official repos.
+#                           When a detected GPU lands on one of these
+#                           branches, the tool prints fallback-specific
+#                           installation instructions instead of the
+#                           normal repo instructions.  (Arch example: the
+#                           580 branch is valid but AUR-only.)
+#
+#   nouveau_hint_below    – Legacy branch threshold (int) below which the
+#                           tool adds a Nouveau hint.  Devices on legacy
+#                           branches below this value (following NVIDIA's
+#                           current policy: < 580) likely work with the
+#                           open-source Nouveau driver.  The hint is shown
+#                           alongside both AUR and error fallback messages.
+#                           Set to null to disable the hint.
+#
+#   kernel_substitution   – Whether install commands use a KERNEL placeholder
+#                           that must be replaced with the running kernel
+#                           package name (e.g. linux618 on Manjaro).
+#
+#   branch_suffix         – Suffix appended to the branch number in install
+#                           commands (e.g. "xx" → 580xx).
+#
+#   fallback_message       – Header printed before fallback package listing.
+#   fallback_device_header – Header printed before the per-device listing.
+#   repo_available_note    – Note printed when legacy branches are still
+#                            available in official repos (i.e. the GPU's
+#                            branch >= min_official_branch).
+#   fallback_package_template – Package name pattern for the main fallback
+#                               package (typically -dkms).  Use {branch} as
+#                               placeholder.  Default: "nvidia-{branch}xx-dkms"
+#   fallback_utils_template   – Package name pattern for the utils fallback
+#                               package.  Use {branch} as placeholder.
+#                               Default: "nvidia-{branch}xx-utils"
 
 distro_registry:
+
+  # ── AUR-capable distributions ──────────────────────────────────────
+
   manjaro:
     min_official_branch: 390
-    aur_supported: true
-    aur_branches: []
+    fallback_method: "aur"
+    fallback_branches: []
+    nouveau_hint_below: 580
     kernel_substitution: true
     branch_suffix: "xx"
-    aur_message_template: "These versions are no longer in official Manjaro repositories."
-    aur_device_header: "Ultra-legacy GPU(s) detected (branch < {min_branch}):"
+    fallback_message: "These versions are no longer in official Manjaro repositories."
+    fallback_device_header: "Ultra-legacy GPU(s) detected (branch < {min_branch}):"
+    fallback_package_template: "nvidia-{branch}xx-dkms"
+    fallback_utils_template: "nvidia-{branch}xx-utils"
     repo_available_note: >-
       Note: These legacy branches are still available in the
       Manjaro official repositories.
 
   arch:
     min_official_branch: null
-    aur_supported: true
-    aur_branches:
+    fallback_method: "aur"
+    fallback_branches:
       - 580
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: "xx"
-    aur_message_template: "These versions are no longer in official Arch repositories."
-    aur_device_header: "Legacy GPU(s) detected (requires AUR):"
+    fallback_message: "These versions are no longer in official Arch repositories."
+    fallback_device_header: "Legacy GPU(s) detected (requires AUR):"
+    fallback_package_template: "nvidia-{branch}xx-dkms"
+    fallback_utils_template: "nvidia-{branch}xx-utils"
     repo_available_note: >-
       Note: NVIDIA officially considers these legacy branches
       unsupported, but they are available via Arch repositories.
 
+  # ── Mainstream distributions ───────────────────────────────────────
+  # By default these have no legacy branches in their repos and use
+  # the "error" fallback.  A downstream fork can change
+  # min_official_branch and/or fallback_method to match their repo
+  # contents — no Python code changes needed.
+
   ubuntu:
     min_official_branch: null
-    aur_supported: false
-    aur_branches: []
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
     kernel_substitution: false
     branch_suffix: ""
-    aur_message_template: null
-    aur_device_header: null
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  debian:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  fedora:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  rhel:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  rocky:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  ol:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  amzn:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: null
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  opensuse:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  sles:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: null
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  kylin:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: 580
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
+    repo_available_note: null
+
+  azurelinux:
+    min_official_branch: null
+    fallback_method: "error"
+    fallback_branches: []
+    nouveau_hint_below: null
+    kernel_substitution: false
+    branch_suffix: ""
+    fallback_message: null
+    fallback_device_header: null
+    fallback_package_template: null
+    fallback_utils_template: null
     repo_available_note: null
 
 # Accepted distribution aliases for --list-supported-distros
