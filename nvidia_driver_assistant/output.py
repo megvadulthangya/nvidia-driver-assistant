@@ -66,11 +66,13 @@ def print_fallback_instructions(distro_id, branches):
     if msg:
         print("\n%s" % msg)
 
+    utils_tpl = distro.get("fallback_utils_template", "nvidia-{branch}xx-utils")
+
     if fallback == "aur":
         print("You can find them in the AUR (Arch User Repository) as:")
         for branch in branches:
             print("  - %s" % pkg_tpl.format(branch=branch))
-            print("  - nvidia-%sxx-utils" % branch)
+            print("  - %s" % utils_tpl.format(branch=branch))
         print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
         print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
     else:

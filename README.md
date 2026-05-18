@@ -262,7 +262,8 @@ section with the following configurable fields:
 | `nouveau_hint_below` | `int` or `null` | GPUs on a branch below this threshold get a hint about the open-source Nouveau driver. Set to `null` to disable. |
 | `fallback_message` | `str` or `null` | Header text printed before fallback package listing. |
 | `fallback_device_header` | `str` or `null` | Header printed before the per-device listing. Supports `{min_branch}` placeholder. |
-| `fallback_package_template` | `str` or `null` | Package name pattern for fallback instructions. Use `{branch}` as placeholder (e.g. `"nvidia-{branch}xx-dkms"`). |
+| `fallback_package_template` | `str` or `null` | Package name pattern for the main fallback package (typically -dkms). Use `{branch}` as placeholder (e.g. `"nvidia-{branch}xx-dkms"`). |
+| `fallback_utils_template` | `str` or `null` | Package name pattern for the utils fallback package. Use `{branch}` as placeholder (e.g. `"nvidia-{branch}xx-utils"`). |
 | `repo_available_note` | `str` or `null` | Note printed when legacy branches are still available in official repos. |
 | `kernel_substitution` | `bool` | Whether install commands use a KERNEL placeholder (Manjaro). |
 | `branch_suffix` | `str` | Suffix appended to branch numbers in install commands (e.g. `"xx"`). |
