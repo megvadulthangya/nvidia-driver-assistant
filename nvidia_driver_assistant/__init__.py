@@ -40,6 +40,7 @@ from .recommendation import (
 from .output import (
     print_pretty_gpu_summary,
     show_multiple_match_warning,
+    print_fallback_instructions,
     print_aur_instructions,
     get_conditional_instructions,
     process_results,
