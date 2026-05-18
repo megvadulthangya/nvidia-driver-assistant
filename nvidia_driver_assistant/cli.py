@@ -28,7 +28,7 @@ from .recommendation import (
     manjaro_get_legacy_branch,
 )
 from .output import (
-    print_aur_instructions,
+    print_fallback_instructions,
     install_driver,
     print_instructions,
 )
@@ -38,6 +38,39 @@ from .output import (
 default_directory = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 default_json_path = os.path.join(default_directory, "supported-gpus", "supported-gpus.json")
 install_json_path = "/usr/share/nvidia-driver-assistant/supported-gpus/supported-gpus.json"
+
+
+def _print_unsupported_error(unsupported_devices, distro_info):
+    """Print error for unsupported legacy devices with optional Nouveau hint."""
+    print(
+        "\nError: The following GPU(s) require a legacy driver that is no longer supported:",
+        file=sys.stderr,
+    )
+    for dev in unsupported_devices:
+        print(
+            "  %s (%s) - requires legacy branch %s" % (dev.name, dev.id, dev.original_legacy_branch),
+            file=sys.stderr,
+        )
+    print(
+        "\nThese GPUs are not supported by current NVIDIA drivers. "
+        "Please consider upgrading your hardware.",
+        file=sys.stderr,
+    )
+
+    # Nouveau hint for very old GPUs
+    nouveau_below = distro_info.get("nouveau_hint_below") if distro_info else None
+    if nouveau_below:
+        nouveau_devs = [
+            dev for dev in unsupported_devices
+            if dev.legacy_int >= 0 and dev.legacy_int < nouveau_below
+        ]
+        if nouveau_devs:
+            print(
+                "\nTip: The open-source Nouveau driver may provide basic display support "
+                "for these older devices. Nouveau is usually included with your "
+                "distribution's default installation.",
+                file=sys.stderr,
+            )
 
 
 def main():
@@ -236,46 +269,57 @@ def main():
 
     # --- Distro-specific legacy handling (registry-driven) ---
     distro_info = DISTRO_REGISTRY.get(system_info.id)
-    if distro_info and distro_info.get("aur_supported") and unsupported_devices:
-        min_branch = distro_info["min_official_branch"]
-        if min_branch is None:
-            aur_devices = unsupported_devices
-        else:
-            aur_devices = [
+    if distro_info and unsupported_devices:
+        min_branch = distro_info.get("min_official_branch")
+        fallback = distro_info.get("fallback_method", "error")
+
+        if min_branch is not None:
+            # Separate: repo-available vs truly-unsupported
+            repo_devices = [
                 dev for dev in unsupported_devices
-                if dev.legacy_int >= 0 and dev.legacy_int < min_branch
+                if dev.legacy_int >= 0 and dev.legacy_int >= min_branch
             ]
-        if aur_devices:
-            device_header = distro_info.get("aur_device_header", "Legacy GPU(s) detected:")
-            print("\n%s" % device_header.format(min_branch=min_branch))
-            for dev in aur_devices:
-                print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
-            branches = sorted({dev.legacy_int for dev in aur_devices if dev.legacy_int >= 0})
-            print_aur_instructions(system_info.id, branches)
-            exit(0)
+            fallback_devices = [
+                dev for dev in unsupported_devices
+                if dev.legacy_int < 0 or dev.legacy_int < min_branch
+            ]
         else:
+            repo_devices = []
+            fallback_devices = list(unsupported_devices)
+
+        # Handle repo-available devices first
+        if repo_devices and not fallback_devices:
             repo_note = distro_info.get("repo_available_note")
             if repo_note:
                 print("\n%s" % repo_note, file=sys.stderr)
-            legacy_branch = merge_unsupported_into_legacy(unsupported_devices, legacy_branch)
+            legacy_branch = merge_unsupported_into_legacy(repo_devices, legacy_branch)
             unsupported_devices = []
+        elif repo_devices and fallback_devices:
+            # Some are repo-available, some need fallback
+            repo_note = distro_info.get("repo_available_note")
+            if repo_note:
+                print("\n%s" % repo_note, file=sys.stderr)
+            legacy_branch = merge_unsupported_into_legacy(repo_devices, legacy_branch)
+            unsupported_devices = fallback_devices
+        else:
+            unsupported_devices = fallback_devices
 
-    # Handle unsupported legacy devices for all other distros
+        # Handle fallback devices
+        if unsupported_devices and fallback == "aur":
+            device_header = distro_info.get("fallback_device_header", "Legacy GPU(s) detected:")
+            print("\n%s" % device_header.format(min_branch=min_branch))
+            for dev in unsupported_devices:
+                print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
+            branches = sorted({dev.legacy_int for dev in unsupported_devices if dev.legacy_int >= 0})
+            print_fallback_instructions(system_info.id, branches)
+            exit(0)
+        elif unsupported_devices and fallback == "error":
+            _print_unsupported_error(unsupported_devices, distro_info)
+            exit(1)
+
+    # Handle unsupported legacy devices when no distro_info exists
     if unsupported_devices:
-        print(
-            "\nError: The following GPU(s) require a legacy driver that is no longer supported:",
-            file=sys.stderr,
-        )
-        for dev in unsupported_devices:
-            print(
-                "  %s (%s) - requires legacy branch %s" % (dev.name, dev.id, dev.original_legacy_branch),
-                file=sys.stderr,
-            )
-        print(
-            "\nThese GPUs are not supported by current NVIDIA drivers. "
-            "Please consider upgrading your hardware.",
-            file=sys.stderr,
-        )
+        _print_unsupported_error(unsupported_devices, distro_info)
         exit(1)
 
     # Use detected legacy branch if no branch was specified (NVIDIA 0.51)
@@ -293,21 +337,29 @@ def main():
             )
             driver = "closed"
 
-    # AUR-only branches fallback (supported but not in official repos)
+    # Fallback-only branches (supported but not in official repos, e.g. AUR)
     if not distro_info:
         distro_info = DISTRO_REGISTRY.get(system_info.id)
     if distro_info and branch_locked:
         _bl = _safe_branch_int(str(branch_locked))
-        aur_only = distro_info.get("aur_branches", ())
-        if _bl >= 0 and _bl in aur_only:
-            print("\n%s official repositories no longer include branch %s.xx." % (
-                system_info.id.capitalize(), _bl
-            ))
-            print("You can find it in the AUR (Arch User Repository) as:")
-            print("  - nvidia-%sxx-dkms" % _bl)
-            print("  - nvidia-%sxx-utils" % _bl)
-            print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
-            print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+        fb_branches = distro_info.get("fallback_branches", ())
+        if _bl >= 0 and _bl in fb_branches:
+            fallback = distro_info.get("fallback_method", "error")
+            if fallback == "aur":
+                print("\n%s official repositories no longer include branch %s.xx." % (
+                    system_info.id.capitalize(), _bl
+                ))
+                pkg_tpl = distro_info.get("fallback_package_template", "nvidia-{branch}xx-dkms")
+                print("You can find it in the AUR (Arch User Repository) as:")
+                print("  - %s" % pkg_tpl.format(branch=_bl))
+                print("  - nvidia-%sxx-utils" % _bl)
+                print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
+                print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
+            else:
+                print("\n%s official repositories no longer include branch %s.xx." % (
+                    system_info.id.capitalize(), _bl
+                ))
+                print("\nYou may need to install this driver branch manually.")
             exit(0)
 
     logging.debug("Recommended driver: %s" % driver)
