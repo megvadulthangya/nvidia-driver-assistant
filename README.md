@@ -1,5 +1,7 @@
 # nvidia-driver-assistant
 
+[![Compatibility Validation](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml/badge.svg?branch=refactor)](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml?branch=refactor)
+
 Detects NVIDIA GPUs, recommends the optimal driver (open/proprietary kernel
 modules) and legacy branch, handles multi-GPU and legacy hardware scenarios,
 and provides distribution-aware installation instructions across 13 Linux
