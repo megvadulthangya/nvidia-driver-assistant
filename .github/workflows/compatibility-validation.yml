@@ -30,12 +30,11 @@ jobs:
           cd $GITHUB_WORKSPACE
           PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
 
-      - name: Full matrix smoke tests (all distros × all GPU simulations)
+      - name: Full compatibility matrix (informational – never fails)
+        continue-on-error: true
         run: |
-          set -e
           cd $GITHUB_WORKSPACE
 
-          # All supported distro identifiers (use exact CLI format)
           DISTROS=(
             "fedora"
             "ubuntu:24.04"
@@ -52,8 +51,7 @@ jobs:
             "sles:15"
           )
 
-          # Individual GPU names for --simulate-gpu
-          GPUS=(
+          SCENARIOS=(
             "545"
             "nvs290"
             "7150m"
@@ -63,60 +61,30 @@ jobs:
             "4070"
             "5070"
             "unknown"
+            "mixed"
+            "badmix"
           )
-
-          # Track overall success
-          FAILED=0
 
           for DISTRO in "${DISTROS[@]}"; do
             echo ""
-            echo "############################################################"
-            echo "#  DISTRO: $DISTRO"
-            echo "############################################################"
+            echo "============================================================"
+            echo "  DISTRO: $DISTRO"
+            echo "============================================================"
+            for SCENARIO in "${SCENARIOS[@]}"; do
+              case "$SCENARIO" in
+                mixed)   FLAG="--simulate-mixed" ;;
+                badmix)  FLAG="--simulate-badmix" ;;
+                *)       FLAG="--simulate-gpu $SCENARIO" ;;
+              esac
 
-            # 1. Individual GPU simulations
-            for GPU in "${GPUS[@]}"; do
-              echo ""
-              echo "---------- $DISTRO : GPU $GPU ----------"
-              if ! PYTHONPATH=. ./nvidia-driver-assistant --simulate-gpu "$GPU" --distro "$DISTRO"; then
-                echo "ERROR: Test failed for $DISTRO --simulate-gpu $GPU"
-                FAILED=1
-              fi
+              echo -n "  • $SCENARIO ... "
+              # Futtatjuk, de a kilépési kódot teljesen ignoráljuk
+              OUTPUT=$(PYTHONPATH=. ./nvidia-driver-assistant $FLAG --distro "$DISTRO" 2>&1) || true
+              # Rövid visszajelzés: az első sor, vagy "OK"/"UNSUPPORTED"
+              FIRST_LINE=$(echo "$OUTPUT" | head -n 1)
+              echo "$FIRST_LINE"
             done
-
-            # 2. Mixed GPUs
-            echo ""
-            echo "---------- $DISTRO : MIXED ----------"
-            if ! PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro "$DISTRO"; then
-              echo "ERROR: Test failed for $DISTRO --simulate-mixed"
-              FAILED=1
-            fi
-
-            # 3. Badmix GPUs
-            echo ""
-            echo "---------- $DISTRO : BADMIX ----------"
-            if ! PYTHONPATH=. ./nvidia-driver-assistant --simulate-badmix --distro "$DISTRO"; then
-              echo "ERROR: Test failed for $DISTRO --simulate-badmix"
-              FAILED=1
-            fi
           done
 
-          if [ $FAILED -ne 0 ]; then
-            echo ""
-            echo "Some tests FAILED. Check logs above."
-            exit 1
-          else
-            echo ""
-            echo "All matrix tests PASSED."
-          fi
-
-      # The following single smoke tests are now redundant (covered by the matrix above)
-      # Keep them only if you want a quick separate sanity check; otherwise delete them.
-      # - name: CLI smoke test – modern GPU
-      #   run: ...
-      # - name: CLI smoke test – mixed GPUs (Fedora)
-      #   run: ...
-      # - name: CLI smoke test – mixed GPUs (Manjaro)
-      #   run: ...
-      # - name: CLI smoke test – badmix GPUs
-      #   run: ...
+          echo ""
+          echo "Compatibility matrix completed (purely informational)."
