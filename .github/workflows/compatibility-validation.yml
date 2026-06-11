@@ -7,7 +7,8 @@ on:
     branches: [ '**' ]
 
 jobs:
-  Compatibility Validation:
+  compatibility-validation:
+    name: Compatibility Validation
     runs-on: ubuntu-latest
 
     steps:
