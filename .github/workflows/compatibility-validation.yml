@@ -2,9 +2,9 @@ name: Compatibility Validation
 
 on:
   push:
-    branches: [ main, r580_00 ]
+    branches: [ '**' ]
   pull_request:
-    branches: [ main, r580_00 ]
+    branches: [ '**' ]
 
 jobs:
   test:
