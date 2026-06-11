@@ -7,7 +7,7 @@ on:
     branches: [ '**' ]
 
 jobs:
-  test:
+  Compatibility Validation:
     runs-on: ubuntu-latest
 
     steps:
