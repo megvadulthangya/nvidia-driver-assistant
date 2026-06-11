@@ -30,25 +30,33 @@ jobs:
           cd $GITHUB_WORKSPACE
           PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
 
+      ###################################################################
+      #  COMPATIBILITY MATRIX (INFORMATIONAL ONLY – CANNOT FAIL)
+      #
+      #  WARNING: Enabling all 13 distros will produce ~3800 lines
+      #  of output. For daily use, keep only a few distros uncommented
+      #  below. You can temporarily enable others for release checks.
+      ###################################################################
       - name: Full compatibility matrix (informational – never fails)
         continue-on-error: true
         run: |
           cd $GITHUB_WORKSPACE
 
+          # --- Supported distros (comment out those you don't need) ---
           DISTROS=(
             "fedora"
             "ubuntu:24.04"
-            "debian"
             "manjaro"
-            "arch"
-            "amzn:2023"
-            "mariner:2.0"
-            "kylin:V10"
-            "opensuse-leap:15.0"
-            "ol:9.5"
-            "rhel:7.5"
-            "rocky:8.6"
-            "sles:15"
+            # "arch"               # ~3800 lines if all enabled
+            # "debian"
+            # "amzn:2023"
+            # "mariner:2.0"
+            # "kylin:V10"
+            # "opensuse-leap:15.0"
+            # "ol:9.5"
+            # "rhel:7.5"
+            # "rocky:8.6"
+            # "sles:15"
           )
 
           SCENARIOS=(
@@ -77,12 +85,11 @@ jobs:
                 *)       FLAG="--simulate-gpu $SCENARIO" ;;
               esac
 
-              echo -n "  • $SCENARIO ... "
-              # Futtatjuk, de a kilépési kódot teljesen ignoráljuk
-              OUTPUT=$(PYTHONPATH=. ./nvidia-driver-assistant $FLAG --distro "$DISTRO" 2>&1) || true
-              # Rövid visszajelzés: az első sor, vagy "OK"/"UNSUPPORTED"
-              FIRST_LINE=$(echo "$OUTPUT" | head -n 1)
-              echo "$FIRST_LINE"
+              echo ""
+              echo "---- $DISTRO : $SCENARIO ----"
+              # Full output, exit code ignored
+              PYTHONPATH=. ./nvidia-driver-assistant $FLAG --distro "$DISTRO" 2>&1 || true
+              echo "---- end $SCENARIO ----"
             done
           done
 
