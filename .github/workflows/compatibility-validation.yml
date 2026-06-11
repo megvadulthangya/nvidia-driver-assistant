@@ -1,0 +1,52 @@
+name: Compatibility Validation
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi python3-yaml umockdev gir1.2-umockdev-1.0
+          # A következő kettő csak biztonság kedvéért, ha a régebbi tesztfájlok használnák
+          sudo apt-get install -y python3-aptdaemon python3-aptdaemon.test
+
+      - name: Run original test suite
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. python3 tests/run --suite test_nvidia_driver_assistant.py
+
+      - name: Run extended test suite (moretests)
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
+
+      - name: CLI smoke test – modern GPU
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. ./nvidia-driver-assistant --simulate-gpu 4070 --distro ubuntu:24.04
+
+      - name: CLI smoke test – mixed GPUs (Fedora)
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro fedora --json
+
+      - name: CLI smoke test – mixed GPUs (Manjaro)
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro manjaro --json
+
+      - name: CLI smoke test – badmix GPUs
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. ./nvidia-driver-assistant --simulate-badmix --distro manjaro --json
