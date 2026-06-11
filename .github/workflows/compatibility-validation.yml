@@ -2,9 +2,9 @@ name: Compatibility Validation
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main, r580_00 ]
   pull_request:
-    branches: [ master ]
+    branches: [ main, r580_00 ]
 
 jobs:
   test:
@@ -30,22 +30,93 @@ jobs:
           cd $GITHUB_WORKSPACE
           PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
 
-      - name: CLI smoke test – modern GPU
+      - name: Full matrix smoke tests (all distros × all GPU simulations)
         run: |
+          set -e
           cd $GITHUB_WORKSPACE
-          PYTHONPATH=. ./nvidia-driver-assistant --simulate-gpu 4070 --distro ubuntu:24.04
 
-      - name: CLI smoke test – mixed GPUs (Fedora)
-        run: |
-          cd $GITHUB_WORKSPACE
-          PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro fedora
+          # All supported distro identifiers (use exact CLI format)
+          DISTROS=(
+            "fedora"
+            "ubuntu:24.04"
+            "debian"
+            "manjaro"
+            "arch"
+            "amzn:2023"
+            "mariner:2.0"
+            "kylin:V10"
+            "opensuse-leap:15.0"
+            "ol:9.5"
+            "rhel:7.5"
+            "rocky:8.6"
+            "sles:15"
+          )
 
-      - name: CLI smoke test – mixed GPUs (Manjaro)
-        run: |
-          cd $GITHUB_WORKSPACE
-          PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro manjaro
+          # Individual GPU names for --simulate-gpu
+          GPUS=(
+            "545"
+            "nvs290"
+            "7150m"
+            "740A"
+            "750"
+            "800A"
+            "4070"
+            "5070"
+            "unknown"
+          )
 
-      - name: CLI smoke test – badmix GPUs
-        run: |
-          cd $GITHUB_WORKSPACE
-          PYTHONPATH=. ./nvidia-driver-assistant --simulate-badmix --distro manjaro
+          # Track overall success
+          FAILED=0
+
+          for DISTRO in "${DISTROS[@]}"; do
+            echo ""
+            echo "############################################################"
+            echo "#  DISTRO: $DISTRO"
+            echo "############################################################"
+
+            # 1. Individual GPU simulations
+            for GPU in "${GPUS[@]}"; do
+              echo ""
+              echo "---------- $DISTRO : GPU $GPU ----------"
+              if ! PYTHONPATH=. ./nvidia-driver-assistant --simulate-gpu "$GPU" --distro "$DISTRO"; then
+                echo "ERROR: Test failed for $DISTRO --simulate-gpu $GPU"
+                FAILED=1
+              fi
+            done
+
+            # 2. Mixed GPUs
+            echo ""
+            echo "---------- $DISTRO : MIXED ----------"
+            if ! PYTHONPATH=. ./nvidia-driver-assistant --simulate-mixed --distro "$DISTRO"; then
+              echo "ERROR: Test failed for $DISTRO --simulate-mixed"
+              FAILED=1
+            fi
+
+            # 3. Badmix GPUs
+            echo ""
+            echo "---------- $DISTRO : BADMIX ----------"
+            if ! PYTHONPATH=. ./nvidia-driver-assistant --simulate-badmix --distro "$DISTRO"; then
+              echo "ERROR: Test failed for $DISTRO --simulate-badmix"
+              FAILED=1
+            fi
+          done
+
+          if [ $FAILED -ne 0 ]; then
+            echo ""
+            echo "Some tests FAILED. Check logs above."
+            exit 1
+          else
+            echo ""
+            echo "All matrix tests PASSED."
+          fi
+
+      # The following single smoke tests are now redundant (covered by the matrix above)
+      # Keep them only if you want a quick separate sanity check; otherwise delete them.
+      # - name: CLI smoke test – modern GPU
+      #   run: ...
+      # - name: CLI smoke test – mixed GPUs (Fedora)
+      #   run: ...
+      # - name: CLI smoke test – mixed GPUs (Manjaro)
+      #   run: ...
+      # - name: CLI smoke test – badmix GPUs
+      #   run: ...
