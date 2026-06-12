@@ -1,0 +1,98 @@
+name: Compatibility Validation
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  compatibility-validation:
+    name: Compatibility Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi python3-yaml umockdev gir1.2-umockdev-1.0
+          sudo apt-get install -y python3-aptdaemon python3-aptdaemon.test
+
+      - name: Run original test suite
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. python3 tests/run --suite test_nvidia_driver_assistant.py
+
+      - name: Run extended test suite (moretests)
+        run: |
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
+
+      ###################################################################
+      #  COMPATIBILITY MATRIX (INFORMATIONAL ONLY – CANNOT FAIL)
+      #
+      #  WARNING: Enabling all 13 distros will produce ~3800 lines
+      #  of output. For daily use, keep only a few distros uncommented
+      #  below. You can temporarily enable others for release checks.
+      ###################################################################
+      - name: Full compatibility matrix (informational – never fails)
+        continue-on-error: true
+        run: |
+          cd $GITHUB_WORKSPACE
+
+          # --- Supported distros (comment out those you don't need) ---
+          DISTROS=(
+            "fedora"
+            "ubuntu:24.04"
+            "manjaro"
+            # "arch"               # ~3800 lines if all enabled
+            # "debian"
+            # "amzn:2023"
+            # "mariner:2.0"
+            # "kylin:V10"
+            # "opensuse-leap:15.0"
+            # "ol:9.5"
+            # "rhel:7.5"
+            # "rocky:8.6"
+            # "sles:15"
+          )
+
+          SCENARIOS=(
+            "545"
+            "nvs290"
+            "7150m"
+            "740A"
+            "750"
+            "800A"
+            "4070"
+            "5070"
+            "unknown"
+            "mixed"
+            "badmix"
+          )
+
+          for DISTRO in "${DISTROS[@]}"; do
+            echo ""
+            echo "============================================================"
+            echo "  DISTRO: $DISTRO"
+            echo "============================================================"
+            for SCENARIO in "${SCENARIOS[@]}"; do
+              case "$SCENARIO" in
+                mixed)   FLAG="--simulate-mixed" ;;
+                badmix)  FLAG="--simulate-badmix" ;;
+                *)       FLAG="--simulate-gpu $SCENARIO" ;;
+              esac
+
+              echo ""
+              echo "---- $DISTRO : $SCENARIO ----"
+              # Full output, exit code ignored
+              PYTHONPATH=. ./nvidia-driver-assistant $FLAG --distro "$DISTRO" 2>&1 || true
+              echo "---- end $SCENARIO ----"
+            done
+          done
+
+          echo ""
+          echo "Compatibility matrix completed (purely informational)."
