@@ -59,7 +59,7 @@ distro_registry:
   # ── AUR-capable distributions ──────────────────────────────────────
 
   manjaro:
-    min_official_branch: 390
+    min_official_branch: 340
     fallback_method: "aur"
     fallback_branches: []
     nouveau_hint_below: 580
