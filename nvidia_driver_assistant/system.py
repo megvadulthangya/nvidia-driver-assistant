@@ -1,6 +1,7 @@
 """System information and distribution detection."""
 
 import os
+import sys
 import logging
 import string
 
@@ -75,7 +76,8 @@ def get_distro(path=None):
                     else system_info.id
                 ),
                 system_info.version_id,
-            )
+            ),
+            file=sys.stderr,
         )
     else:
         logging.debug(

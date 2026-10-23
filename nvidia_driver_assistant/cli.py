@@ -42,7 +42,7 @@ install_json_path = "/usr/share/nvidia-driver-assistant/supported-gpus/supported
 def _print_nouveau_hint(devices, distro_info, dest=None):
     """Print Nouveau hint if any device is below the distro's nouveau_hint_below threshold."""
     if dest is None:
-        dest = sys.stdout
+        dest = sys.stderr
     nouveau_below = distro_info.get("nouveau_hint_below") if distro_info else None
     if not nouveau_below:
         return
@@ -76,6 +76,23 @@ def _print_unsupported_error(unsupported_devices, distro_info):
         file=sys.stderr,
     )
     _print_nouveau_hint(unsupported_devices, distro_info, dest=sys.stderr)
+
+
+def _resolve_mhwd_config(legacy_branch, branch_locked):
+    """Map branch to Manjaro mhwd config name.
+
+    The kernel module flavor (open vs closed) is decided *inside* the
+    config by nvidia-recommended-driver, so the config name only encodes
+    the branch.  GPUs on branches below Manjaro's min_official_branch
+    (currently 340) exit via the AUR fallback earlier in main(), so they
+    never reach this function.
+    """
+    branch = branch_locked or legacy_branch
+    if branch:
+        branch_str = str(branch).split(".")[0]
+        if branch_str and branch_str != "latest":
+            return "video-nvidia-%sxx" % branch_str
+    return "video-nvidia"
 
 
 def main():
@@ -151,6 +168,12 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--mhwd-config",
+        action="store_true",
+        help="Print the mhwd config name (for installer / mhwd C++ integration)",
+        default=False,
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output decision as JSON (for installer / scripting)",
@@ -169,6 +192,7 @@ def main():
     distro_override = args.distro
     module_override = args.module_flavor
     mhwd = args.mhwd
+    mhwd_config = args.mhwd_config
     simulate_gpu = args.simulate_gpu
     simulate_mixed = args.simulate_mixed
     simulate_badmix = args.simulate_badmix
@@ -201,7 +225,7 @@ def main():
     elif simulate_badmix:
         simulate_multi = "badmix"
 
-    suppress_warnings = mhwd or json_output
+    suppress_warnings = mhwd or mhwd_config or json_output
     driver, legacy_branch, unsupported_devices, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
@@ -217,7 +241,8 @@ def main():
     # Determine distribution (needed for Manjaro/Arch legacy override)
     if distro_override:
         system_info = override_distro(distro_override.lower())
-        print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id))
+        print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id),
+              file=sys.stderr)
     else:
         system_info = get_distro(os_release_path)
 
@@ -266,7 +291,6 @@ def main():
         fallback = distro_info.get("fallback_method", "error")
 
         if min_branch is not None:
-            # Separate: repo-available vs truly-unsupported
             repo_devices = [
                 dev for dev in unsupported_devices
                 if dev.legacy_int >= 0 and dev.legacy_int >= min_branch
@@ -279,7 +303,6 @@ def main():
             repo_devices = []
             fallback_devices = list(unsupported_devices)
 
-        # Handle repo-available devices first
         if repo_devices and not fallback_devices:
             repo_note = distro_info.get("repo_available_note")
             if repo_note:
@@ -287,7 +310,6 @@ def main():
             legacy_branch = merge_unsupported_into_legacy(repo_devices, legacy_branch)
             unsupported_devices = []
         elif repo_devices and fallback_devices:
-            # Some are repo-available, some need fallback
             repo_note = distro_info.get("repo_available_note")
             if repo_note:
                 print("\n%s" % repo_note, file=sys.stderr)
@@ -296,12 +318,15 @@ def main():
         else:
             unsupported_devices = fallback_devices
 
-        # Handle fallback devices
         if unsupported_devices and fallback == "aur":
+            if mhwd_config:
+                # mhwd cannot install AUR-only branches; let priority fallback
+                # handle it (the user has to install AUR packages manually).
+                exit(1)
             device_header = distro_info.get("fallback_device_header", "Legacy GPU(s) detected:")
-            print("\n%s" % device_header.format(min_branch=min_branch))
+            print("\n%s" % device_header.format(min_branch=min_branch), file=sys.stderr)
             for dev in unsupported_devices:
-                print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}")
+                print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}", file=sys.stderr)
             branches = sorted({dev.legacy_int for dev in unsupported_devices if dev.legacy_int >= 0})
             print_fallback_instructions(system_info.id, branches)
             _print_nouveau_hint(unsupported_devices, distro_info)
@@ -310,14 +335,13 @@ def main():
             _print_unsupported_error(unsupported_devices, distro_info)
             exit(1)
 
-    # Handle unsupported legacy devices when no distro_info exists
     if unsupported_devices:
         _print_unsupported_error(unsupported_devices, distro_info)
         exit(1)
 
     # Use detected legacy branch if no branch was specified (NVIDIA 0.51)
     if legacy_branch and not branch_locked:
-        print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch)
+        print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch, file=sys.stderr)
         branch_locked = legacy_branch
 
     # --- Legacy branch + open driver catch-all (final safety net) ---
@@ -337,6 +361,8 @@ def main():
         _bl = _safe_branch_int(str(branch_locked))
         fb_branches = distro_info.get("fallback_branches", ())
         if _bl >= 0 and _bl in fb_branches:
+            if mhwd_config:
+                exit(1)
             fallback = distro_info.get("fallback_method", "error")
             if fallback == "aur":
                 print("\n%s official repositories no longer include branch %s.xx." % (
@@ -354,7 +380,6 @@ def main():
                     system_info.id.capitalize(), _bl
                 ))
                 print("\nYou may need to install this driver branch manually.")
-            # Nouveau hint for fallback branches below the threshold
             nouveau_below = distro_info.get("nouveau_hint_below")
             if nouveau_below and _bl < nouveau_below:
                 print(
@@ -365,6 +390,11 @@ def main():
             exit(0)
 
     logging.debug("Recommended driver: %s" % driver)
+
+    if mhwd_config:
+        config_name = _resolve_mhwd_config(legacy_branch, branch_locked)
+        print(config_name)
+        exit(0)
 
     if mhwd:
         print(driver)
@@ -416,7 +446,6 @@ def main():
 
     logging.debug("OS detected: %s" % system_info.id)
 
-    # For Manjaro, if no branch locked yet, try to get from devices (fallback)
     if not branch_locked and not skip_legacy_fallback and system_info.id == "manjaro" and devices:
         manjaro_branch = manjaro_get_legacy_branch(devices)
         if manjaro_branch:
