@@ -10,11 +10,12 @@ license=('MIT' 'custom')
 depends=('python' 'python-pyyaml')
 makedepends=('git' 'curl' 'libarchive' 'gzip')
 
-# Source code comes from the Manjaro-only git branch.  The DEB is pulled
-# in prepare() only for the production supported-gpus.json and NVIDIA EULA.
-# supportedchips.html is downloaded from the latest New Feature Branch and
-# used as the authoritative GPU -> branch source (overrides the JSON when
-# NVIDIA manipulates the legacybranch field).
+# Pin the NVIDIA driver version used for the supportedchips.html download.
+# Leave empty to auto-detect (falls back to production branch when the
+# New Feature Branch version cannot be determined from the unix page).
+# Update manually when a new NFB is released (e.g. 615.78.08).
+_nfb_version_override="615.78.08"
+
 source=(
   "git+https://github.com/megvadulthangya/nvidia-driver-assistant.git#branch=manjaro"
   "show-driver"
@@ -27,6 +28,7 @@ sha256sums=(
 _nvidia_repo_base='https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64'
 _nvidia_unix_page='https://www.nvidia.com/en-us/drivers/unix/'
 _nvidia_chips_base='https://us.download.nvidia.com/XFree86/Linux-x86_64'
+_nvidia_dir_base='https://download.nvidia.com/XFree86/Linux-x86_64'
 
 _latest_deb_info() {
   local html latest_file ver
@@ -42,11 +44,63 @@ _latest_deb_info() {
 }
 
 _latest_nfb_version() {
-  local html ver
-  html=$(curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 \
-    -A "Mozilla/5.0 (X11; Linux x86_64)" "${_nvidia_unix_page}") || return 1
-  ver=$(echo "$html" | grep -oP 'Latest New Feature Branch Version:\s*\K[0-9.]+' | head -n1)
-  [[ -n "$ver" ]] && echo "$ver"
+  if [[ -n "${_nfb_version_override}" ]]; then
+    echo "${_nfb_version_override}"
+    return 0
+  fi
+
+  local ver
+
+  # Strategy 1: parse the NVIDIA unix driver page (strip tags + entities first)
+  ver=$(python - "${_nvidia_unix_page}" <<'PY' 2>/dev/null
+import re
+import sys
+import html
+import urllib.request
+
+url = sys.argv[1]
+req = urllib.request.Request(
+    url,
+    headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+)
+try:
+    raw = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
+except Exception:
+    sys.exit(1)
+
+text = re.sub(r"<[^>]+>", " ", raw)
+text = html.unescape(text).replace("\xa0", " ")
+m = re.search(
+    r"Latest\s+New\s+Feature\s+Branch\s+Version:\s*([0-9]+\.[0-9]+\.[0-9]+)",
+    text,
+)
+if m:
+    print(m.group(1))
+    sys.exit(0)
+sys.exit(1)
+PY
+)
+  if [[ -n "$ver" ]]; then echo "$ver"; return 0; fi
+
+  # Strategy 2: directory listing on download.nvidia.com
+  local html
+  html=$(curl -fsSL --retry 3 --connect-timeout 10 "${_nvidia_dir_base}/") || return 1
+  ver=$(echo "$html" \
+    | grep -oE 'href="[5-9][0-9]{2}\.[0-9]+\.[0-9]+/"' \
+    | sed -E 's|href="([^/]+)/"|\1|' \
+    | sort -V \
+    | tail -n1)
+  if [[ -n "$ver" ]]; then echo "$ver"; return 0; fi
+
+  # Strategy 3: latest.txt (production branch)
+  ver=$(curl -fsSL --retry 3 --connect-timeout 10 "${_nvidia_dir_base}/latest.txt" 2>/dev/null | awk '{print $1}')
+  if [[ -n "$ver" ]]; then
+    warning "Falling back to production branch ${ver} as NFB could not be determined"
+    echo "$ver"
+    return 0
+  fi
+
+  return 1
 }
 
 pkgver() {
@@ -88,50 +142,50 @@ prepare() {
     rm "$data_tar"
   fi
 
-  # 2. Download supportedchips.html from the latest New Feature Branch.
-  #    This is the authoritative GPU -> branch table used by the parser
-  #    to override the JSON when NVIDIA manipulates the legacybranch field.
-  echo "==> Determining latest New Feature Branch version..."
+  # 2. Download supportedchips.html from the configured (or detected) NFB.
+  echo "==> Determining NVIDIA driver version for supportedchips.html..."
   local nfb_version
   nfb_version="$(_latest_nfb_version)" || true
 
   if [[ -z "$nfb_version" ]]; then
-    error "Could not determine latest New Feature Branch version from ${_nvidia_unix_page}"
+    error "Could not determine NVIDIA driver version for supportedchips.html"
     return 1
   fi
 
-  echo "==> Latest New Feature Branch: ${nfb_version}"
+  echo "==> Using NVIDIA driver version: ${nfb_version}"
   local chips_url="${_nvidia_chips_base}/${nfb_version}/README/supportedchips.html"
   echo "==> Downloading supportedchips.html: ${chips_url}"
   rm -f "supportedchips.html"
   curl -fL --retry 5 -o "supportedchips.html" "${chips_url}"
+
+  # Sanity check
+  if ! grep -qE 'CURRENT NVIDIA GPUS|Current NVIDIA GPUs|[0-9]+\.xx driver supports' supportedchips.html; then
+    error "supportedchips.html does not contain expected sections"
+    return 1
+  fi
+  msg2 "supportedchips.html validated ($(wc -c < supportedchips.html) bytes)"
 }
 
 package() {
-  # 1. Directory structure
   install -d "${pkgdir}/usr/bin"
   install -d "${pkgdir}/usr/share/${pkgname}"
   install -d "${pkgdir}/usr/share/doc/${pkgname}"
   install -d "${pkgdir}/usr/share/licenses/${pkgname}"
 
-  # Determine Python site-packages path
   local site_packages
   site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"
   install -d "${pkgdir}${site_packages}/nvidia_driver_assistant/data"
 
-  # 2. Main wrapper script from git -> /usr/bin/
   msg2 "Installing main script from git source..."
   install -m755 "${srcdir}/${pkgname}/nvidia-driver-assistant" \
     "${pkgdir}/usr/bin/nvidia-driver-assistant"
 
-  # 3. Python package from git -> site-packages (modules + YAML data)
   msg2 "Installing Python package (nvidia_driver_assistant/)..."
   install -m644 "${srcdir}/${pkgname}/nvidia_driver_assistant/"*.py \
     "${pkgdir}${site_packages}/nvidia_driver_assistant/"
   install -m644 "${srcdir}/${pkgname}/nvidia_driver_assistant/data/"*.yaml \
     "${pkgdir}${site_packages}/nvidia_driver_assistant/data/"
 
-  # 3.5 supportedchips.html -> package data directory
   if [[ -f "${srcdir}/supportedchips.html" ]]; then
     msg2 "Installing supportedchips.html..."
     install -m644 "${srcdir}/supportedchips.html" \
@@ -141,7 +195,6 @@ package() {
     return 1
   fi
 
-  # 4. show-driver wrapper (declared in source=)
   if [[ -f "${srcdir}/show-driver" ]]; then
     msg2 "Installing show-driver as nvidia-recommended-driver..."
     install -m755 "${srcdir}/show-driver" \
@@ -151,12 +204,10 @@ package() {
     return 1
   fi
 
-  # 5. Data files from DEB (production supported-gpus.json, icons, etc.)
   if [[ -d "${srcdir}/debroot/usr/share/${pkgname}" ]]; then
     cp -ra "${srcdir}/debroot/usr/share/${pkgname}"/* "${pkgdir}/usr/share/${pkgname}/"
   fi
 
-  # 6. Documentation from git
   install -m644 "${srcdir}/${pkgname}/README.md" \
     "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -m644 "${srcdir}/${pkgname}/docs/Configuration.md" \
@@ -164,7 +215,6 @@ package() {
   install -m644 "${srcdir}/${pkgname}/COPYING" \
     "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
 
-  # 7. Licenses from DEB (copyright + NVIDIA EULA)
   local deb_doc="${srcdir}/debroot/usr/share/doc/${pkgname}"
   if [[ -f "${deb_doc}/copyright" ]]; then
     install -m644 "${deb_doc}/copyright" "${pkgdir}/usr/share/licenses/${pkgname}/copyright"
