@@ -2,8 +2,6 @@
 
 import os
 import sys
-import string
-import logging
 
 from .config import (
     DISTRO_REGISTRY,
@@ -86,27 +84,6 @@ def print_fallback_instructions(distro_id, branches):
 print_aur_instructions = print_fallback_instructions
 
 
-def get_conditional_instructions(distro_id, version_id, instructions_dict):
-    """Instructions may depend on the specific distro release (robust version parsing)"""
-    numeric_version = version_id.lstrip(string.ascii_letters).lstrip()
-    if not numeric_version:
-        return instructions_dict.get(min(instructions_dict.keys()))
-
-    versions = []
-    for cond in instructions_dict.keys():
-        from_ver = float(cond)
-        try:
-            if float(numeric_version) >= from_ver:
-                versions.append(from_ver)
-        except ValueError:
-            continue
-
-    if versions:
-        return instructions_dict.get(max(versions))
-    else:
-        return instructions_dict.get(min(instructions_dict.keys()))
-
-
 def process_results(driver, distro_id, version_id, branch_id=None, install=False):
     """Process and display/execute installation instructions"""
     if branch_id:
@@ -120,21 +97,6 @@ def process_results(driver, distro_id, version_id, branch_id=None, install=False
             file=sys.stderr,
         )
         return False
-
-    try:
-        if isinstance(candidates, dict):
-            candidates = get_conditional_instructions(distro_id, version_id, candidates)
-    except AttributeError:
-        pass
-
-    if distro_id == "ubuntu" and not branch_id:
-        from .recommendation import ubuntu_get_latest_driver_branch
-        latest_branch = ubuntu_get_latest_driver_branch()
-        if latest_branch:
-            branch_id = latest_branch
-        else:
-            print("Error: failed to get the latest driver branch", file=sys.stderr)
-            return False
 
     distro_info = DISTRO_REGISTRY.get(distro_id)
     if distro_info and distro_info.get("kernel_substitution"):

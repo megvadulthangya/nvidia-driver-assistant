@@ -7,7 +7,6 @@ import logging
 import argparse
 
 from .config import (
-    supported_distros,
     DISTRO_REGISTRY,
     DISTRO_NON_LEGACY_DEFAULT_BRANCH,
     DISTRO_580_LEGACY_OVERRIDE_BRANCH,
@@ -94,12 +93,6 @@ def main():
         help="Specify a NVIDIA Driver branch",
     )
     parser.add_argument(
-        "--list-supported-distros",
-        action="store_true",
-        help="Print out the list of the supported Linux distributions",
-        default=False,
-    )
-    parser.add_argument(
         "--supported-gpus",
         nargs="?",
         type=str,
@@ -175,19 +168,12 @@ def main():
     os_release_path = args.os_release_path
     distro_override = args.distro
     module_override = args.module_flavor
-    print_supported_distros = args.list_supported_distros
     mhwd = args.mhwd
     simulate_gpu = args.simulate_gpu
     simulate_mixed = args.simulate_mixed
     simulate_badmix = args.simulate_badmix
     json_output = args.json
     system_info = None
-
-    if print_supported_distros:
-        print("The following are the currently accepted distribution aliases:")
-        for distro in supported_distros:
-            print("  %s" % distro)
-        exit(0)
 
     if not supported_gpus:
         if os.path.isfile(install_json_path):

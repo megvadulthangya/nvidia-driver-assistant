@@ -17,13 +17,8 @@ class SystemInfo(object):
         self.update_info()
 
     def update_info(self):
-        if self.id in ["opensuse-leap", "opensuse-tumbleweed"]:
-            self.id = "opensuse"
-        elif self.id in ["cm", "mariner"]:
-            self.id = "azurelinux"
-        elif self.id in ["rocky", "ol"]:
-            self.id = "rhel"
-        elif self.id == "arch" and "manjaro" in self.pretty_name.lower():
+        # Manjaro-only: convert arch with "manjaro" in pretty_name to manjaro
+        if self.id == "arch" and "manjaro" in self.pretty_name.lower():
             self.id = "manjaro"
 
         if self.id != self.original_id:
@@ -31,7 +26,7 @@ class SystemInfo(object):
 
 
 def get_distro(path=None):
-    """Get the Linux distribution from /etc/os-release"""
+    """Get the Linux distribution from /etc/os-release (Manjaro-only)."""
     release_file = "/etc/os-release" if not path else path
 
     distro_id = None
@@ -101,7 +96,7 @@ def get_distro(path=None):
 
 
 def override_distro(distro_override):
-    """Process the --distro argument and return a SystemInfo object"""
+    """Process the --distro argument and return a SystemInfo object."""
     if ":" in distro_override:
         distro_id = distro_override.strip().split(":")[0]
         version_id = distro_override.strip().split(":")[-1]
