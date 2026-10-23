@@ -10,6 +10,12 @@
 # Derived constants (OPEN_CAPABLE_ARCHS, OPEN_UNSUPPORTED_ARCHS,
 # ARCHITECTURE_MIN_DRIVER) are computed from this registry so that
 # adding or changing an architecture only requires editing one place.
+#
+# IMPORTANT: dict order matters.  _get_architecture_from_device_name()
+# iterates in insertion order and returns on first match.  Specific
+# architectures must come before more generic ones, and the
+# "modern-generic" catch-all must come after every explicit architecture
+# so it only catches genuinely new generations (RTX 60xx+).
 
 blackwell:
   # NVIDIA Blackwell architecture (RTX 50xx series, GB chips)
@@ -229,6 +235,17 @@ pre-curie:
     - '\b6200\b'
     - '\b6800\b'
     - '\bFX\b'
+
+modern-generic:
+  # Catch-all for future GPU generations not yet explicitly listed.
+  # Any RTX 60xx or higher is a modern card that supports open modules.
+  # This entry MUST stay after every explicit architecture so specific
+  # patterns match first; legacy 580 and earlier cards never carry an
+  # "RTX 60xx" name, so this cannot leak onto legacy hardware.
+  is_open_capable: true
+  min_driver: 550
+  patterns:
+    - '\bRTX [6-9]\d'
 
 unknown:
   # Fallback for unrecognized architectures

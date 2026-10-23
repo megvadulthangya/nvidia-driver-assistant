@@ -25,7 +25,7 @@ from .config import (
 def _safe_branch_int(branch_str, default=-1):
     try:
         return int(branch_str.split('.')[0])
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, AttributeError):
         return default
 
 
@@ -174,6 +174,26 @@ class Device(object):
                 flags.append(feat)
 
         logging.debug("Device: has following flags: %s" % (flags))
+
+        # 0. supportedchips.html authoritative override (if available)
+        try:
+            from .supported_chips import SUPPORTED_CHIPS
+        except ImportError:
+            SUPPORTED_CHIPS = None
+
+        if SUPPORTED_CHIPS:
+            readme_key = self.id.lower().replace("0x", "")
+            readme_branch = SUPPORTED_CHIPS.get(readme_key)
+            if readme_branch and readme_branch != "current":
+                self.legacy_branch = readme_branch
+                self.original_legacy_branch = readme_branch
+                self.legacy_int = _safe_branch_int(readme_branch)
+                self.driver_hint = proprietary_required
+                logging.debug(
+                    "supported_chips: %s -> legacy %s (authoritative)",
+                    self.id, readme_branch,
+                )
+                return
 
         # 1. Non-legacy cards
         if not self.original_legacy_branch and DISTRO_NON_LEGACY_DEFAULT_BRANCH:
