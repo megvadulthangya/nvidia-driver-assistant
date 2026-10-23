@@ -95,23 +95,30 @@ os_release_files = {
 
 
 def import_function(function, *args):
-    """Hack to import functions from the main script"""
-    filename = "nvidia-driver-assistant.py"
-    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
-    spec = importlib.util.spec_from_file_location(function, script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return getattr(module, function)(*args)
+    """Import functions directly from the nvidia_driver_assistant package.
+
+    This bypasses the historical `nvidia-driver-assistant.py` copy that
+    tests/run creates, because that copy is fragile and can pick up the
+    wrong file contents in CI.  The package is the single source of truth.
+    """
+    import nvidia_driver_assistant
+    if not hasattr(nvidia_driver_assistant, function):
+        raise AttributeError(
+            "nvidia_driver_assistant package has no attribute '%s'. Available: %s"
+            % (
+                function,
+                sorted(
+                    k for k in dir(nvidia_driver_assistant) if not k.startswith("_")
+                ),
+            )
+        )
+    return getattr(nvidia_driver_assistant, function)(*args)
 
 
 def import_class(klass, *args):
-    """Hack to import classes from the main script"""
-    filename = "nvidia-driver-assistant.py"
-    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
-    spec = importlib.util.spec_from_file_location(klass, script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return getattr(module, klass)(*args)
+    """Import classes directly from the nvidia_driver_assistant package."""
+    import nvidia_driver_assistant
+    return getattr(nvidia_driver_assistant, klass)(*args)
 
 
 def generate_fake_hardware():
@@ -186,6 +193,13 @@ def get_json_file(filename=None):
     )
 
 
+def _subprocess_env():
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = root_dir + (":" + existing if existing else "")
+    return env
+
+
 class DetectTest(unittest.TestCase):
     """Test DriversAssistant.detect"""
 
@@ -193,27 +207,50 @@ class DetectTest(unittest.TestCase):
         self.umockdev = generate_fake_hardware()
 
     def run_driver_assistant(self, distro_id, json_file=None, additional_args=[], testbed=None):
+        """Invoke the CLI via the package entry point (bypasses the wrapper copy)."""
         if testbed is None:
             testbed = self.umockdev
         os_release = generate_os_release(distro_id)
-        command = [
-            "%s/nvidia-driver-assistant" % root_dir,
+        args = [
             "--supported-gpus", get_json_file(json_file),
             "--sys-path", testbed.get_sys_dir(),
             "--os-release-path", os_release.name,
         ]
         if additional_args:
-            command.extend(additional_args)
-        assistant = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            args.extend(additional_args)
+        code = (
+            "import sys; sys.argv = ['nvidia-driver-assistant'] + sys.argv[1:]; "
+            "from nvidia_driver_assistant.cli import main; main()"
+        )
+        command = [sys.executable, "-c", code] + args
+        assistant = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_subprocess_env()
+        )
         return assistant.communicate()
 
     def _load_main_module(self):
-        filename = "nvidia-driver-assistant.py"
-        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, filename))
-        spec = importlib.util.spec_from_file_location("nvidia_driver_assistant", script_path)
-        nda = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(nda)
-        return nda
+        """Return the nvidia_driver_assistant package module."""
+        import nvidia_driver_assistant
+        return nvidia_driver_assistant
+
+    def test_package_loads(self):
+        """nvidia_driver_assistant package exposes all required symbols"""
+        import nvidia_driver_assistant as nda
+        required = ["override_distro", "get_distro", "recommend_driver",
+                    "get_nvidia_devices", "get_system_modaliases", "process_results"]
+        missing = [n for n in required if not hasattr(nda, n)]
+        self.assertFalse(missing,
+                         "nvidia_driver_assistant is missing: %s" % missing)
+
+    def test_wrapper_script_exists(self):
+        """The nvidia-driver-assistant wrapper exists and starts with a shebang"""
+        wrapper = os.path.join(root_dir, "nvidia-driver-assistant")
+        self.assertTrue(os.path.isfile(wrapper),
+                        "Missing wrapper script: %s" % wrapper)
+        with open(wrapper, "r") as f:
+            first_line = f.readline().strip()
+        self.assertTrue(first_line.startswith("#!"),
+                        "Wrapper does not start with a shebang: %r" % first_line)
 
     def test_get_distro(self):
         """get_distro() for fake systems (Manjaro-only)"""
@@ -344,13 +381,20 @@ class DetectTest(unittest.TestCase):
 
         for distro in test_distros:
             with self.subTest(distro=distro):
-                command = [
-                    "%s/nvidia-driver-assistant" % root_dir,
+                args = [
                     "--supported-gpus", get_json_file(),
                     "--distro", distro,
                     "--simulate-mixed", "--json",
                 ]
-                proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                code = (
+                    "import sys; sys.argv = ['nvidia-driver-assistant'] + sys.argv[1:]; "
+                    "from nvidia_driver_assistant.cli import main; main()"
+                )
+                command = [sys.executable, "-c", code] + args
+                proc = subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env=_subprocess_env(),
+                )
                 stdout, stderr = proc.communicate()
                 self.assertEqual(len(stderr), 0, f"stderr not empty on {distro}: {stderr}")
                 result = self._extract_json(stdout)
@@ -374,13 +418,20 @@ class DetectTest(unittest.TestCase):
 
         for distro in test_distros:
             with self.subTest(distro=distro):
-                command = [
-                    "%s/nvidia-driver-assistant" % root_dir,
+                args = [
                     "--supported-gpus", get_json_file(),
                     "--distro", distro,
                     "--simulate-badmix", "--json",
                 ]
-                proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                code = (
+                    "import sys; sys.argv = ['nvidia-driver-assistant'] + sys.argv[1:]; "
+                    "from nvidia_driver_assistant.cli import main; main()"
+                )
+                command = [sys.executable, "-c", code] + args
+                proc = subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env=_subprocess_env(),
+                )
                 stdout, stderr = proc.communicate()
                 self.assertEqual(len(stderr), 0, f"stderr not empty on {distro}: {stderr}")
                 result = self._extract_json(stdout)
