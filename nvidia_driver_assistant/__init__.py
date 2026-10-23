@@ -33,7 +33,6 @@ from .recommendation import (
     check_legacy_devices,
     recommend_driver,
     merge_unsupported_into_legacy,
-    ubuntu_get_latest_driver_branch,
     manjaro_get_kernel_package,
     manjaro_get_legacy_branch,
 )

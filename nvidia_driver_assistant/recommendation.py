@@ -1,8 +1,5 @@
 """Driver recommendation logic."""
 
-import os
-import re
-import sys
 import logging
 import platform
 
@@ -66,14 +63,11 @@ def check_legacy_devices(devices):
     """Check for legacy devices and return legacy branch info (NVIDIA 0.51 logic).
 
     Returns a tuple: (legacy_branch, unsupported_devices)
-    - legacy_branch: The legacy branch to use (e.g., "580"), or None if no legacy devices
-    - unsupported_devices: List of devices with unsupported legacy branches (< min_supported_legacy_branch)
     """
     legacy_branch = None
     unsupported_devices = []
 
     for dev in devices.values():
-        # Use original_legacy_branch from JSON, not modified by overrides
         if dev.original_legacy_branch:
             branch_int = dev.legacy_int
             if branch_int < 0:
@@ -120,11 +114,9 @@ def recommend_driver(sys_path=None, supported_gpus=None,
     if not devices:
         return None, None, [], None
 
-    # Check legacy devices first (NVIDIA 0.51)
     legacy_branch, unsupported_devices = check_legacy_devices(devices)
 
     logging.debug("recommend_driver(): Do device IDs support the open driver?")
-
     logging.debug("recommend_driver(): using json logic")
     driver = get_driver_from_json_hints(devices)
 
@@ -139,35 +131,6 @@ def merge_unsupported_into_legacy(unsupported_devices, legacy_branch):
             if legacy_branch is None or dev.legacy_int > _safe_branch_int(legacy_branch):
                 legacy_branch = branch_major
     return legacy_branch
-
-
-def ubuntu_get_latest_driver_branch(path="/"):
-    """Get the latest driver branch available in Ubuntu's repositories"""
-    try:
-        import apt_pkg
-    except ModuleNotFoundError:
-        print(
-            "Error: please install the following package and try again:\n  python3-apt",
-            file=sys.stderr,
-        )
-        exit(1)
-
-    apt_pkg.init_config()
-    dpkg_status = os.path.abspath(os.path.join(path, "var", "lib", "dpkg", "status"))
-    apt_pkg.config.set("Dir::State::status", dpkg_status)
-    apt_pkg.init_system()
-    cache = apt_pkg.Cache(None)
-    candidates = []
-    for package in cache.packages:
-        branch = re.search(r"nvidia-driver-([0-9]+)-open", package.name)
-        if branch:
-            candidates.append(branch.group(1))
-
-    if candidates:
-        candidates.sort()
-        return candidates[-1]
-    else:
-        return None
 
 
 def manjaro_get_kernel_package():
