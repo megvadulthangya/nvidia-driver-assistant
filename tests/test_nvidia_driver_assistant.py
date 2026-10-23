@@ -97,7 +97,14 @@ def import_function(function, *args):
     spec = importlib.util.spec_from_file_location(function, script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-
+    if not hasattr(module, function):
+        raise AttributeError(
+            "Module '%s' loaded from %s has no attribute '%s'. "
+            "Available: %s" % (
+                function, script_path, function,
+                sorted(k for k in module.__dict__ if not k.startswith("__"))
+            )
+        )
     return getattr(module, function)(*args)
 
 
@@ -108,7 +115,6 @@ def import_class(klass, *args):
     spec = importlib.util.spec_from_file_location(klass, script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-
     return getattr(module, klass)(*args)
 
 
@@ -160,6 +166,26 @@ class DetectTest(unittest.TestCase):
         assistant = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return assistant.communicate()
 
+    def _diagnose_stderr(self, stderr):
+        if len(stderr) > 0:
+            print("\n--- STDERR (%d bytes) ---\n%s--- END ---\n"
+                  % (len(stderr), stderr.decode("utf-8", errors="replace")),
+                  file=sys.stderr)
+
+    def test_package_loads(self):
+        """Verify nvidia_driver_assistant package loads with expected attributes"""
+        import nvidia_driver_assistant as nda
+        required = ["override_distro", "get_distro", "recommend_driver",
+                    "get_nvidia_devices", "get_system_modaliases", "process_results"]
+        missing = [n for n in required if not hasattr(nda, n)]
+        self.assertFalse(missing,
+                         "nvidia_driver_assistant is missing attributes: %s\n"
+                         "Package file: %s\n"
+                         "Available: %s" % (
+                             missing, getattr(nda, "__file__", "?"),
+                             sorted(k for k in dir(nda) if not k.startswith("_"))
+                         ))
+
     def test_get_distro(self):
         """get_distro() for fake systems (Manjaro-only)"""
         release_file = tempfile.NamedTemporaryFile(
@@ -187,7 +213,6 @@ class DetectTest(unittest.TestCase):
         del release_file
 
     def test_distro_override(self):
-        original_id = "manjaro"
         fake_id = "manjaro"
         system_info = import_function("override_distro", (fake_id))
         self.assertTrue(system_info)
@@ -232,6 +257,7 @@ class DetectTest(unittest.TestCase):
         """Test driver assistant scenario 1 (Manjaro)"""
         self.umockdev.add_device("pci", "gpu_modalias_1", None, ["modalias", gpu_modalias_1], [])
         stdout, stderr = self.run_driver_assistant("manjaro")
+        self._diagnose_stderr(stderr)
         self.assertEqual(len(stderr), 0)
 
     def test_driver_assistant_branch(self):
@@ -245,9 +271,11 @@ class DetectTest(unittest.TestCase):
         self.assertTrue(len(stderr) > 0)
 
         stdout, stderr = self.run_driver_assistant("manjaro", additional_args=["--branch", "560"])
+        self._diagnose_stderr(stderr)
         self.assertEqual(len(stderr), 0)
 
         stdout, stderr = self.run_driver_assistant("manjaro", additional_args=["--branch", "575"])
+        self._diagnose_stderr(stderr)
         self.assertEqual(len(stderr), 0)
 
     def test_driver_assistant_module_flavor(self):
@@ -267,6 +295,7 @@ class DetectTest(unittest.TestCase):
         stdout, stderr = self.run_driver_assistant(
             "manjaro", additional_args=["--module-flavor", "open"]
         )
+        self._diagnose_stderr(stderr)
         self.assertEqual(len(stderr), 0)
 
         stdout, stderr = self.run_driver_assistant(
