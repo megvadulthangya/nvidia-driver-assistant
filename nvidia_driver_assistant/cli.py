@@ -199,6 +199,12 @@ def main():
     json_output = args.json
     system_info = None
 
+    # stdout must contain only the final result in --mhwd and --mhwd-config
+    # modes; --json tolerates informational text before the JSON object
+    # (tests use _extract_json which strips it).
+    clean_stdout_modes = mhwd or mhwd_config
+    info_stream = sys.stderr if clean_stdout_modes else sys.stdout
+
     if not supported_gpus:
         if os.path.isfile(install_json_path):
             supported_gpus = install_json_path
@@ -241,13 +247,17 @@ def main():
     # Determine distribution (needed for Manjaro/Arch legacy override)
     if distro_override:
         system_info = override_distro(distro_override.lower())
-        print("Detected system:\n  %s %s\n" % (system_info.id, system_info.version_id),
-              file=sys.stderr)
     else:
         system_info = get_distro(os_release_path)
 
     if not system_info:
         exit(1)
+
+    print(
+        "Detected system:\n  %s %s\n"
+        % (system_info.display_name(), system_info.version_id),
+        file=info_stream,
+    )
 
     skip_legacy_fallback = False
 
@@ -341,7 +351,7 @@ def main():
 
     # Use detected legacy branch if no branch was specified (NVIDIA 0.51)
     if legacy_branch and not branch_locked:
-        print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch, file=sys.stderr)
+        print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch, file=info_stream)
         branch_locked = legacy_branch
 
     # --- Legacy branch + open driver catch-all (final safety net) ---

@@ -1,7 +1,6 @@
 """System information and distribution detection."""
 
 import os
-import sys
 import logging
 import string
 
@@ -25,9 +24,18 @@ class SystemInfo(object):
         if self.id != self.original_id:
             logging.debug("get_distro(): detected %s, setting to %s" % (self.original_id, self.id))
 
+    def display_name(self):
+        """Human-readable name for the 'Detected system' banner."""
+        if self.pretty_name:
+            return self.pretty_name.replace(self.version_id, "").strip()
+        return self.id
+
 
 def get_distro(path=None):
-    """Get the Linux distribution from /etc/os-release (Manjaro-only)."""
+    """Get the Linux distribution from /etc/os-release (Manjaro-only).
+
+    No output is written; the caller decides where to print the banner.
+    """
     release_file = "/etc/os-release" if not path else path
 
     distro_id = None
@@ -66,18 +74,6 @@ def get_distro(path=None):
                 " (%s)" % system_info.id if system_info.id != system_info.original_id else "",
                 system_info.version_id,
             )
-        )
-        print(
-            "Detected system:\n  %s %s\n"
-            % (
-                (
-                    system_info.pretty_name.replace(system_info.version_id, "").strip()
-                    if system_info.pretty_name
-                    else system_info.id
-                ),
-                system_info.version_id,
-            ),
-            file=sys.stderr,
         )
     else:
         logging.debug(
