@@ -2,7 +2,7 @@
 
 
 
-[![Compatibility Validation](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml/badge.svg?branch=manjaro)](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml)
+[![Compatibility Validation](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml/badge.svg?branch=manjaro-upstream)](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml)
 
 
 A fork of NVIDIA's `nvidia-driver-assistant`, reduced to Manjaro-only
