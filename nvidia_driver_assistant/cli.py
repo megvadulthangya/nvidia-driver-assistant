@@ -95,6 +95,39 @@ def _resolve_mhwd_config(legacy_branch, branch_locked):
     return "video-nvidia"
 
 
+def _resolve_mhwd_branch(device_id):
+    """Return the NVIDIA supportedchips branch for one PCI device ID.
+
+    The result is either a numeric legacy branch (for example "390")
+    or "current". Unknown IDs and unavailable data return None.
+    """
+    key = str(device_id).strip().lower()
+
+    if key.startswith("0x"):
+        key = key[2:]
+
+    if len(key) != 4 or any(char not in "0123456789abcdef" for char in key):
+        return None
+
+    try:
+        from .supported_chips import SUPPORTED_CHIPS
+    except ImportError:
+        return None
+
+    if not SUPPORTED_CHIPS:
+        return None
+
+    branch = SUPPORTED_CHIPS.get(key)
+
+    if branch == "current":
+        return branch
+
+    if isinstance(branch, str) and branch.isdigit():
+        return branch
+
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -174,6 +207,18 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--mhwd-branch",
+        action="store_true",
+        help="Print the supportedchips.html branch for one NVIDIA PCI device ID",
+        default=False,
+    )
+    parser.add_argument(
+        "--mhwd-device-id",
+        nargs="?",
+        type=str,
+        help="NVIDIA PCI device ID used by --mhwd-branch",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output decision as JSON (for installer / scripting)",
@@ -183,6 +228,23 @@ def main():
         "--verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
     )
     args = parser.parse_args()
+
+    # MHWD asks for the branch of the specific PCI device currently
+    # being processed. This mode deliberately bypasses the global
+    # multi-GPU recommendation logic.
+    if args.mhwd_branch:
+        if not args.mhwd_device_id:
+            parser.error("--mhwd-branch requires --mhwd-device-id")
+
+        supported_branch = _resolve_mhwd_branch(args.mhwd_device_id)
+        if supported_branch is None:
+            exit(1)
+
+        print(supported_branch)
+        exit(0)
+
+    if args.mhwd_device_id:
+        parser.error("--mhwd-device-id can only be used with --mhwd-branch")
 
     needs_install = args.install
     branch_locked = args.branch
