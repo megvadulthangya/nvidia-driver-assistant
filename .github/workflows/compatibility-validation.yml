@@ -21,6 +21,82 @@ jobs:
           sudo apt-get install -y python3-gi python3-yaml umockdev gir1.2-umockdev-1.0
           sudo apt-get install -y python3-aptdaemon python3-aptdaemon.test
 
+      - name: Download NVIDIA supportedchips data
+        run: |
+          set -euo pipefail
+
+          NVIDIA_INDEX_URL="https://download.nvidia.com/XFree86/Linux-x86_64/"
+          NVIDIA_CHIPS_BASE="https://us.download.nvidia.com/XFree86/Linux-x86_64"
+
+          echo "==> Fetching NVIDIA driver directory index..."
+
+          INDEX_HTML="$(curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 "${NVIDIA_INDEX_URL}")"
+
+          echo "==> Determining latest NVIDIA 6xx version..."
+
+          LATEST_6XX_VERSION="$(
+            printf '%s\n' "${INDEX_HTML}" \
+              | grep -oE '6[0-9]{2}\.[0-9]+(\.[0-9]+)?' \
+              | sort -Vu \
+              | tail -n1 || true
+          )"
+
+          if [[ -z "${LATEST_6XX_VERSION}" ]]; then
+            echo "ERROR: Could not determine the latest NVIDIA 6xx version"
+            exit 1
+          fi
+
+          echo "==> Using NVIDIA 6xx version: ${LATEST_6XX_VERSION}"
+
+          echo "==> Determining latest NVIDIA 580.xx version..."
+
+          LATEST_580_VERSION="$(
+            printf '%s\n' "${INDEX_HTML}" \
+              | grep -oE '580\.[0-9]+(\.[0-9]+)?' \
+              | sort -Vu \
+              | tail -n1 || true
+          )"
+
+          if [[ -z "${LATEST_580_VERSION}" ]]; then
+            echo "ERROR: Could not determine the latest NVIDIA 580.xx version"
+            exit 1
+          fi
+
+          echo "==> Using NVIDIA 580.xx version: ${LATEST_580_VERSION}"
+
+          DATA_DIR="nvidia_driver_assistant/data"
+          mkdir -p "${DATA_DIR}"
+
+          echo "==> Downloading latest 6xx supportedchips.html..."
+
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 \
+            -o "${DATA_DIR}/supportedchips.html" \
+            "${NVIDIA_CHIPS_BASE}/${LATEST_6XX_VERSION}/README/supportedchips.html"
+
+          echo "==> Downloading 580.xx supportedchips.html..."
+
+          curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 \
+            -o "${DATA_DIR}/supportedchips580.html" \
+            "${NVIDIA_CHIPS_BASE}/${LATEST_580_VERSION}/README/supportedchips.html"
+
+          echo "==> Validating downloaded NVIDIA compatibility data..."
+
+          PYTHONPATH=. python3 - <<'PY'
+          from nvidia_driver_assistant.supported_chips import validate_documents
+
+          latest, current580 = validate_documents()
+
+          print(
+              "Validated NVIDIA data: %d latest device IDs; %d IDs in 580 Current"
+              % (len(latest), len(current580))
+          )
+
+          print(
+              "RTX 4070 SUPER (2783) latest classification: %s"
+              % latest.get("2783")
+          )
+          PY
+
       - name: Run NVIDIA supportedchips parser tests
         run: |
           cd "$GITHUB_WORKSPACE"
@@ -39,8 +115,8 @@ jobs:
       ###################################################################
       #  COMPATIBILITY MATRIX (INFORMATIONAL ONLY – CANNOT FAIL)
       #
-      #  WARNING: Enabling all 13 distros will produce ~3800 lines
-      #  of output. For daily use, keep only a few distros uncommented
+      #  WARNING: Enabling all 13 distros will produce ~3800 lines of
+      #  output. For daily use, keep only a few distros uncommented
       #  below. You can temporarily enable others for release checks.
       ###################################################################
       - name: Full compatibility matrix (informational – never fails)
@@ -84,6 +160,7 @@ jobs:
             echo "============================================================"
             echo "  DISTRO: $DISTRO"
             echo "============================================================"
+
             for SCENARIO in "${SCENARIOS[@]}"; do
               case "$SCENARIO" in
                 mixed)   FLAG="--simulate-mixed" ;;
