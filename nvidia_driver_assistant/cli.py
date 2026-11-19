@@ -8,13 +8,10 @@ import argparse
 
 from .config import (
     DISTRO_REGISTRY,
-    DISTRO_NON_LEGACY_DEFAULT_BRANCH,
-    DISTRO_580_LEGACY_OVERRIDE_BRANCH,
-    ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
-    ENABLE_ARCHITECTURE_CHECK,
     MANJARO_MIN_OFFICIAL_LEGACY_BRANCH,
     ARCH_MIN_REPO_LEGACY_BRANCH,
     ARCH_AUR_ONLY_BRANCHES,
+    min_supported_legacy_branch,
     default,
     open_supported,
 )
@@ -33,80 +30,106 @@ from .output import (
 )
 
 
-# JSON paths
-default_directory = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-default_json_path = os.path.join(default_directory, "supported-gpus", "supported-gpus.json")
-install_json_path = "/usr/share/nvidia-driver-assistant/supported-gpus/supported-gpus.json"
+# JSON paths.
+default_directory = os.path.dirname(
+    os.path.dirname(os.path.realpath(__file__))
+)
+default_json_path = os.path.join(
+    default_directory,
+    "supported-gpus",
+    "supported-gpus.json",
+)
+install_json_path = (
+    "/usr/share/nvidia-driver-assistant/"
+    "supported-gpus/supported-gpus.json"
+)
 
 
 def _print_nouveau_hint(devices, distro_info, dest=None):
-    """Print Nouveau hint if any device is below the distro's nouveau_hint_below threshold."""
+    """Print a Nouveau hint for GPUs below the distro's configured threshold."""
     if dest is None:
         dest = sys.stderr
-    nouveau_below = distro_info.get("nouveau_hint_below") if distro_info else None
+
+    nouveau_below = (
+        distro_info.get("nouveau_hint_below")
+        if distro_info
+        else None
+    )
+
     if not nouveau_below:
         return
+
     nouveau_devs = [
-        dev for dev in devices
+        dev
+        for dev in devices
         if dev.legacy_int >= 0 and dev.legacy_int < nouveau_below
     ]
+
     if nouveau_devs:
         print(
-            "\nNote: The open-source Nouveau driver may provide basic display support "
-            "for these older devices. Nouveau is usually included with your "
-            "distribution's default installation.",
+            "\nNote: The open-source Nouveau driver may provide basic "
+            "display support for these older devices. Nouveau is usually "
+            "included with your distribution's default installation.",
             file=dest,
         )
 
 
 def _print_unsupported_error(unsupported_devices, distro_info):
-    """Print error for unsupported legacy devices with optional Nouveau hint."""
+    """Print an error for legacy devices requiring an unsupported driver."""
     print(
-        "\nError: The following GPU(s) require a legacy driver that is no longer supported:",
+        "\nError: The following GPU(s) require a legacy driver "
+        "that is no longer supported:",
         file=sys.stderr,
     )
+
     for dev in unsupported_devices:
         print(
-            "  %s (%s) - requires legacy branch %s" % (dev.name, dev.id, dev.original_legacy_branch),
+            "  %s (%s) - requires legacy branch %s"
+            % (dev.name, dev.id, dev.original_legacy_branch),
             file=sys.stderr,
         )
+
     print(
         "\nThese GPUs are not supported by current NVIDIA drivers. "
         "Please consider upgrading your hardware.",
         file=sys.stderr,
     )
-    _print_nouveau_hint(unsupported_devices, distro_info, dest=sys.stderr)
+
+    _print_nouveau_hint(
+        unsupported_devices,
+        distro_info,
+        dest=sys.stderr,
+    )
 
 
 def _resolve_mhwd_config(legacy_branch, branch_locked):
-    """Map branch to Manjaro mhwd config name.
-
-    The kernel module flavor (open vs closed) is decided *inside* the
-    config by nvidia-recommended-driver, so the config name only encodes
-    the branch.  GPUs on branches below Manjaro's min_official_branch
-    (currently 340) exit via the AUR fallback earlier in main(), so they
-    never reach this function.
-    """
+    """Map a selected driver branch to a Manjaro MHWD config name."""
     branch = branch_locked or legacy_branch
+
     if branch:
         branch_str = str(branch).split(".")[0]
+
         if branch_str and branch_str != "latest":
             return "video-nvidia-%sxx" % branch_str
+
     return "video-nvidia"
 
 
 def _resolve_mhwd_branch(device_id):
     """Return the NVIDIA supportedchips branch for one PCI device ID.
 
-    The result is either a numeric legacy branch (for example "390")
-    or "current". Unknown IDs and unavailable data return None.
+    Returns a numeric legacy branch (for example "390") or "current".
+    Unknown IDs and unavailable data return None.
     """
     key = str(device_id).strip().lower()
 
     if key.startswith("0x"):
         key = key[2:]
 
-    if len(key) != 4 or any(char not in "0123456789abcdef" for char in key):
+    if (
+        len(key) != 4
+        or any(char not in "0123456789abcdef" for char in key)
+    ):
         return None
 
     try:
@@ -130,6 +153,7 @@ def _resolve_mhwd_branch(device_id):
 
 def main():
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--install",
         action="store_true",
@@ -164,52 +188,76 @@ def main():
         "--distro",
         nargs="?",
         type=str,
-        help='Specify a Linux distro using the "DISTRO:VERSION" or "DISTRO" pattern. Useful for testing',
+        help=(
+            'Specify a Linux distro using the "DISTRO:VERSION" '
+            "or \"DISTRO\" pattern. Useful for testing"
+        ),
     )
     parser.add_argument(
         "--module-flavor",
         nargs="?",
         type=str,
-        help='Specify a kernel module flavor; "open" and "closed" are accepted values. Useful for testing',
+        help=(
+            'Specify a kernel module flavor; "open" and "closed" '
+            "are accepted values. Useful for testing"
+        ),
     )
-    multi_gpu_scenarios = [k for k, v in simulated_gpus.items() if isinstance(v, list)]
-    single_gpu_choices = [k for k, v in simulated_gpus.items() if isinstance(v, dict)]
+
+    multi_gpu_scenarios = [
+        key
+        for key, value in simulated_gpus.items()
+        if isinstance(value, list)
+    ]
+    single_gpu_choices = [
+        key
+        for key, value in simulated_gpus.items()
+        if isinstance(value, dict)
+    ]
+
     sim_group = parser.add_mutually_exclusive_group()
+
     sim_group.add_argument(
         "--simulate-gpu",
         choices=single_gpu_choices,
         nargs="?",
         type=str,
-        help="Specify a simulated gpu; Useful for testing",
+        help="Specify a simulated GPU; useful for testing",
     )
     sim_group.add_argument(
         "--simulate-mixed",
         action="store_true",
         default=False,
-        help="Simulate a mixed-GPU system (GTX 750 Ti + RTX 5070); Useful for testing",
+        help=(
+            "Simulate a mixed-GPU system "
+            "(GTX 750 Ti + RTX 5070); useful for testing"
+        ),
     )
     sim_group.add_argument(
         "--simulate-badmix",
         action="store_true",
         default=False,
-        help="Simulate a mixed-GPU system (740A + RTX 5070); Useful for testing",
+        help=(
+            "Simulate a mixed-GPU system "
+            "(740A + RTX 5070); useful for testing"
+        ),
     )
+
     parser.add_argument(
         "--mhwd",
         action="store_true",
-        help='Signal mhwd to use "open" or "closed" driver',
+        help='Signal MHWD to use "open" or "closed" driver',
         default=False,
     )
     parser.add_argument(
         "--mhwd-config",
         action="store_true",
-        help="Print the mhwd config name (for installer / mhwd C++ integration)",
+        help="Print the MHWD config name",
         default=False,
     )
     parser.add_argument(
         "--mhwd-branch",
         action="store_true",
-        help="Print the supportedchips.html branch for one NVIDIA PCI device ID",
+        help="Print the supportedchips.html branch for one NVIDIA PCI ID",
         default=False,
     )
     parser.add_argument(
@@ -221,22 +269,31 @@ def main():
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Output decision as JSON (for installer / scripting)",
+        help="Output the decision as JSON",
         default=False,
     )
     parser.add_argument(
-        "--verbose", action="store_true", help="[OPTIONAL] Verbose output", default=False
+        "--verbose",
+        action="store_true",
+        help="[OPTIONAL] Verbose output",
+        default=False,
     )
+
     args = parser.parse_args()
 
     # MHWD asks for the branch of the specific PCI device currently
-    # being processed. This mode deliberately bypasses the global
-    # multi-GPU recommendation logic.
+    # being processed. This mode deliberately bypasses global multi-GPU
+    # recommendation logic.
     if args.mhwd_branch:
         if not args.mhwd_device_id:
-            parser.error("--mhwd-branch requires --mhwd-device-id")
+            parser.error(
+                "--mhwd-branch requires --mhwd-device-id"
+            )
 
-        supported_branch = _resolve_mhwd_branch(args.mhwd_device_id)
+        supported_branch = _resolve_mhwd_branch(
+            args.mhwd_device_id
+        )
+
         if supported_branch is None:
             exit(1)
 
@@ -244,7 +301,9 @@ def main():
         exit(0)
 
     if args.mhwd_device_id:
-        parser.error("--mhwd-device-id can only be used with --mhwd-branch")
+        parser.error(
+            "--mhwd-device-id can only be used with --mhwd-branch"
+        )
 
     needs_install = args.install
     branch_locked = args.branch
@@ -261,9 +320,8 @@ def main():
     json_output = args.json
     system_info = None
 
-    # stdout must contain only the final result in --mhwd and --mhwd-config
-    # modes; --json tolerates informational text before the JSON object
-    # (tests use _extract_json which strips it).
+    # stdout must contain only the final result in --mhwd and
+    # --mhwd-config modes.
     clean_stdout_modes = mhwd or mhwd_config
     info_stream = sys.stderr if clean_stdout_modes else sys.stdout
 
@@ -277,23 +335,31 @@ def main():
         try:
             int_branch = int(branch_locked)
         except ValueError:
-            print("Error: %s is not an integer value" % branch_locked, file=sys.stderr)
+            print(
+                "Error: %s is not an integer value" % branch_locked,
+                file=sys.stderr,
+            )
             exit(1)
         else:
             if int_branch < 560:
-                print("Error: only releases >= 560 are allowed", file=sys.stderr)
+                print(
+                    "Error: only releases >= 560 are allowed",
+                    file=sys.stderr,
+                )
                 exit(1)
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
     simulate_multi = None
+
     if simulate_mixed:
         simulate_multi = "mixed"
     elif simulate_badmix:
         simulate_multi = "badmix"
 
     suppress_warnings = mhwd or mhwd_config or json_output
+
     driver, legacy_branch, unsupported_devices, devices = recommend_driver(
         sys_path=sys_path,
         supported_gpus=supported_gpus,
@@ -303,10 +369,13 @@ def main():
     )
 
     if not driver:
-        print("Error: Failed to find a suitable driver", file=sys.stderr)
+        print(
+            "Error: Failed to find a suitable driver",
+            file=sys.stderr,
+        )
         exit(1)
 
-    # Determine distribution (needed for Manjaro/Arch legacy override)
+    # Determine distribution.
     if distro_override:
         system_info = override_distro(distro_override.lower())
     else:
@@ -317,59 +386,82 @@ def main():
 
     print(
         "Detected system:\n  %s %s\n"
-        % (system_info.display_name(), system_info.version_id),
+        % (
+            system_info.display_name(),
+            system_info.version_id,
+        ),
         file=info_stream,
     )
 
     skip_legacy_fallback = False
 
-    # --- Mixed-GPU priority: open-capable device + legacy < 580 ---
+    # If the selected latest driver cannot support all detected GPUs,
+    # prioritise the GPU(s) that require the newer driver.
     if unsupported_devices and devices:
         has_open_capable = any(
             dev.driver_hint in (default, open_supported)
             for dev in devices.values()
         )
+
         if has_open_capable:
             legacy_names = [
-                f"{dev.name} (PCI ID: {dev.id}, legacy branch: {dev.original_legacy_branch})"
+                "%s (PCI ID: %s, legacy branch: %s)"
+                % (
+                    dev.name,
+                    dev.id,
+                    dev.original_legacy_branch,
+                )
                 for dev in unsupported_devices
             ]
+
             if not suppress_warnings:
                 print(
-                    "\nNote: The following legacy GPU(s) are incompatible with the "
-                    "driver required by your modern GPU(s):"
+                    "\nNote: There is no common NVIDIA driver branch "
+                    "for all detected GPUs."
                 )
-                for name in legacy_names:
-                    print(f"  {name}")
                 print(
-                    "\nThe legacy driver branch is too old to support your modern GPU. "
-                    "Recommending the latest driver for the modern card(s).\n"
-                    "The legacy GPU(s) listed above will NOT function with this driver.\n"
+                    "The following legacy GPU(s) are incompatible "
+                    "with the driver required by the newer GPU(s):"
                 )
+
+                for name in legacy_names:
+                    print("  %s" % name)
+
+                print(
+                    "\nPrioritising the newer GPU(s). The legacy GPU(s) "
+                    "listed above will NOT function with the selected driver.\n"
+                )
+
             logging.debug(
-                "Mixed-GPU priority: discarding unsupported legacy devices in favour of "
-                "open-capable modern device(s). Legacy devices: %s",
-                ", ".join(legacy_names)
+                "Mixed-GPU priority: discarding incompatible legacy "
+                "devices in favour of newer GPU(s). Legacy devices: %s",
+                ", ".join(legacy_names),
             )
+
             unsupported_devices = []
             legacy_branch = None
             driver = "open"
             skip_legacy_fallback = True
 
-    # --- Distro-specific legacy handling (registry-driven) ---
+    # Distribution-specific legacy handling.
     distro_info = DISTRO_REGISTRY.get(system_info.id)
+
     if distro_info and unsupported_devices:
         min_branch = distro_info.get("min_official_branch")
         fallback = distro_info.get("fallback_method", "error")
 
         if min_branch is not None:
             repo_devices = [
-                dev for dev in unsupported_devices
-                if dev.legacy_int >= 0 and dev.legacy_int >= min_branch
+                dev
+                for dev in unsupported_devices
+                if dev.legacy_int >= 0
+                and dev.legacy_int >= min_branch
             ]
             fallback_devices = [
-                dev for dev in unsupported_devices
-                if dev.legacy_int < 0 or dev.legacy_int < min_branch
+                dev
+                for dev in unsupported_devices
+                if dev.legacy_int < 0
+                or dev.legacy_int < min_branch
             ]
         else:
             repo_devices = []
@@ -377,94 +469,199 @@ def main():
 
         if repo_devices and not fallback_devices:
             repo_note = distro_info.get("repo_available_note")
+
             if repo_note:
                 print("\n%s" % repo_note, file=sys.stderr)
-            legacy_branch = merge_unsupported_into_legacy(repo_devices, legacy_branch)
+
+            legacy_branch = merge_unsupported_into_legacy(
+                repo_devices,
+                legacy_branch,
+            )
             unsupported_devices = []
+
         elif repo_devices and fallback_devices:
             repo_note = distro_info.get("repo_available_note")
+
             if repo_note:
                 print("\n%s" % repo_note, file=sys.stderr)
-            legacy_branch = merge_unsupported_into_legacy(repo_devices, legacy_branch)
+
+            legacy_branch = merge_unsupported_into_legacy(
+                repo_devices,
+                legacy_branch,
+            )
             unsupported_devices = fallback_devices
+
         else:
             unsupported_devices = fallback_devices
 
         if unsupported_devices and fallback == "aur":
             if mhwd_config:
-                # mhwd cannot install AUR-only branches; let priority fallback
-                # handle it (the user has to install AUR packages manually).
+                # MHWD cannot install AUR-only branches.
                 exit(1)
-            device_header = distro_info.get("fallback_device_header", "Legacy GPU(s) detected:")
-            print("\n%s" % device_header.format(min_branch=min_branch), file=sys.stderr)
+
+            device_header = distro_info.get(
+                "fallback_device_header",
+                "Legacy GPU(s) detected:",
+            )
+            print(
+                "\n%s" % device_header.format(min_branch=min_branch),
+                file=sys.stderr,
+            )
+
             for dev in unsupported_devices:
-                print(f"  {dev.name} (PCI ID: {dev.id}) requires the legacy driver branch {dev.original_legacy_branch}", file=sys.stderr)
-            branches = sorted({dev.legacy_int for dev in unsupported_devices if dev.legacy_int >= 0})
-            print_fallback_instructions(system_info.id, branches)
-            _print_nouveau_hint(unsupported_devices, distro_info)
+                print(
+                    "  %s (PCI ID: %s) requires the legacy driver branch %s"
+                    % (
+                        dev.name,
+                        dev.id,
+                        dev.original_legacy_branch,
+                    ),
+                    file=sys.stderr,
+                )
+
+            branches = sorted({
+                dev.legacy_int
+                for dev in unsupported_devices
+                if dev.legacy_int >= 0
+            })
+
+            print_fallback_instructions(
+                system_info.id,
+                branches,
+            )
+            _print_nouveau_hint(
+                unsupported_devices,
+                distro_info,
+            )
             exit(0)
+
         elif unsupported_devices and fallback == "error":
-            _print_unsupported_error(unsupported_devices, distro_info)
+            _print_unsupported_error(
+                unsupported_devices,
+                distro_info,
+            )
             exit(1)
 
     if unsupported_devices:
-        _print_unsupported_error(unsupported_devices, distro_info)
+        _print_unsupported_error(
+            unsupported_devices,
+            distro_info,
+        )
         exit(1)
 
-    # Use detected legacy branch if no branch was specified (NVIDIA 0.51)
+    # Use detected legacy branch if no branch was specified.
     if legacy_branch and not branch_locked:
-        print("Legacy GPU detected. Using driver branch %s.\n" % legacy_branch, file=info_stream)
+        print(
+            "Legacy GPU detected. Using driver branch %s.\n"
+            % legacy_branch,
+            file=info_stream,
+        )
         branch_locked = legacy_branch
 
-    # --- Legacy branch + open driver catch-all (final safety net) ---
+    # Final safety net: branches <=580 must not use open kernel modules.
     if driver == "open" and branch_locked:
         effective_branch = _safe_branch_int(str(branch_locked))
-        if effective_branch >= 0 and effective_branch <= 580:
+
+        if 0 <= effective_branch <= 580:
             logging.debug(
                 "Legacy branch %s does not support open kernel modules; "
-                "switching recommendation from open to closed.", branch_locked
+                "switching recommendation from open to closed.",
+                branch_locked,
             )
             driver = "closed"
 
-    # Fallback-only branches (supported but not in official repos, e.g. AUR)
+    # Fallback-only branches (supported but not in official repositories).
     if not distro_info:
         distro_info = DISTRO_REGISTRY.get(system_info.id)
+
     if distro_info and branch_locked:
-        _bl = _safe_branch_int(str(branch_locked))
-        fb_branches = distro_info.get("fallback_branches", ())
-        if _bl >= 0 and _bl in fb_branches:
+        branch_number = _safe_branch_int(str(branch_locked))
+        fallback_branches = distro_info.get(
+            "fallback_branches",
+            (),
+        )
+
+        if (
+            branch_number >= 0
+            and branch_number in fallback_branches
+        ):
             if mhwd_config:
                 exit(1)
-            fallback = distro_info.get("fallback_method", "error")
+
+            fallback = distro_info.get(
+                "fallback_method",
+                "error",
+            )
+
             if fallback == "aur":
-                print("\n%s official repositories no longer include branch %s.xx." % (
-                    system_info.id.capitalize(), _bl
-                ))
-                pkg_tpl = distro_info.get("fallback_package_template", "nvidia-{branch}xx-dkms")
-                utils_tpl = distro_info.get("fallback_utils_template", "nvidia-{branch}xx-utils")
-                print("You can find it in the AUR (Arch User Repository) as:")
-                print("  - %s" % pkg_tpl.format(branch=_bl))
-                print("  - %s" % utils_tpl.format(branch=_bl))
-                print("\nPlease use your preferred AUR helper (e.g., yay, paru) to install them.")
-                print("Note for Pamac users: Enable AUR support in 'Preferences' > 'Third Party' > 'Enable AUR support'.")
-            else:
-                print("\n%s official repositories no longer include branch %s.xx." % (
-                    system_info.id.capitalize(), _bl
-                ))
-                print("\nYou may need to install this driver branch manually.")
-            nouveau_below = distro_info.get("nouveau_hint_below")
-            if nouveau_below and _bl < nouveau_below:
                 print(
-                    "\nNote: The open-source Nouveau driver may provide basic display support "
-                    "for GPUs on this legacy branch. Nouveau is usually included with your "
-                    "distribution's default installation."
+                    "\n%s official repositories no longer include "
+                    "branch %s.xx."
+                    % (
+                        system_info.id.capitalize(),
+                        branch_number,
+                    )
                 )
+
+                pkg_tpl = distro_info.get(
+                    "fallback_package_template",
+                    "nvidia-{branch}xx-dkms",
+                )
+                utils_tpl = distro_info.get(
+                    "fallback_utils_template",
+                    "nvidia-{branch}xx-utils",
+                )
+
+                print("You can find it in the AUR (Arch User Repository) as:")
+                print(
+                    "  - %s"
+                    % pkg_tpl.format(branch=branch_number)
+                )
+                print(
+                    "  - %s"
+                    % utils_tpl.format(branch=branch_number)
+                )
+                print(
+                    "\nPlease use your preferred AUR helper "
+                    "(e.g., yay, paru) to install them."
+                )
+                print(
+                    "Note for Pamac users: Enable AUR support in "
+                    "'Preferences' > 'Third Party' > 'Enable AUR support'."
+                )
+
+            else:
+                print(
+                    "\n%s official repositories no longer include "
+                    "branch %s.xx."
+                    % (
+                        system_info.id.capitalize(),
+                        branch_number,
+                    )
+                )
+                print(
+                    "\nYou may need to install this driver branch manually."
+                )
+
+            nouveau_below = distro_info.get("nouveau_hint_below")
+
+            if nouveau_below and branch_number < nouveau_below:
+                print(
+                    "\nNote: The open-source Nouveau driver may provide "
+                    "basic display support for GPUs on this legacy branch. "
+                    "Nouveau is usually included with your distribution's "
+                    "default installation."
+                )
+
             exit(0)
 
-    logging.debug("Recommended driver: %s" % driver)
+    logging.debug("Recommended driver: %s", driver)
 
     if mhwd_config:
-        config_name = _resolve_mhwd_config(legacy_branch, branch_locked)
+        config_name = _resolve_mhwd_config(
+            legacy_branch,
+            branch_locked,
+        )
         print(config_name)
         exit(0)
 
@@ -474,20 +671,22 @@ def main():
 
     if json_output:
         device_list = []
+
         for dev in devices.values() if devices else []:
-            min_driver, max_driver = dev._get_supported_range(legacy_override=False)
             device_info = {
                 "pci_id": dev.id,
                 "name": dev.name,
-                "architecture": dev.architecture,
-                "type": "mobile" if dev.is_laptop_gpu else "desktop",
-                "is_laptop": dev.is_laptop_gpu,
                 "is_legacy": bool(dev.original_legacy_branch),
                 "subsystem_vendor": dev.subvendorid,
                 "subsystem_device": dev.subdevid,
-                "supported_min_driver": min_driver,
-                "supported_max_driver": max_driver,
-                "legacy": dev.original_legacy_branch if dev.original_legacy_branch else None
+                "legacy": (
+                    dev.original_legacy_branch
+                    if dev.original_legacy_branch
+                    else None
+                ),
+                "nvidia_supported_branch": dev.nvidia_supported_branch,
+                "supports_latest_6xx": dev.supports_latest_6xx,
+                "supports_580": dev.supports_580,
             }
             device_list.append(device_info)
 
@@ -495,20 +694,22 @@ def main():
             "driver": "nvidia",
             "module_flavor": driver,
             "branch": branch_locked,
-            "distro_non_legacy_default": DISTRO_NON_LEGACY_DEFAULT_BRANCH,
-            "distro_580_legacy_override": DISTRO_580_LEGACY_OVERRIDE_BRANCH,
-            "legacy_openkernel_restriction": ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
-            "architecture_check_enabled": ENABLE_ARCHITECTURE_CHECK,
-            "manjaro_min_official_legacy_branch": MANJARO_MIN_OFFICIAL_LEGACY_BRANCH,
+            "legacy_closed_kernel_enforced": True,
+            "min_supported_legacy_branch": min_supported_legacy_branch,
+            "manjaro_min_official_legacy_branch": (
+                MANJARO_MIN_OFFICIAL_LEGACY_BRANCH
+            ),
             "arch_min_repo_legacy_branch": ARCH_MIN_REPO_LEGACY_BRANCH,
             "arch_aur_only_branches": list(ARCH_AUR_ONLY_BRANCHES),
-            "devices": device_list
+            "devices": device_list,
         }
+
         print(json.dumps(result, indent=2))
         exit(0)
 
     if module_override:
         driver = module_override.lower()
+
         if driver not in ("open", "closed"):
             print(
                 'Error: invalid module flavor. Accepted values are "open" and "closed".',
@@ -516,20 +717,38 @@ def main():
             )
             exit(1)
 
-    logging.debug("OS detected: %s" % system_info.id)
+    logging.debug("OS detected: %s", system_info.id)
 
-    if not branch_locked and not skip_legacy_fallback and system_info.id == "manjaro" and devices:
+    if (
+        not branch_locked
+        and not skip_legacy_fallback
+        and system_info.id == "manjaro"
+        and devices
+    ):
         manjaro_branch = manjaro_get_legacy_branch(devices)
+
         if manjaro_branch:
             branch_locked = manjaro_branch
 
     if needs_install:
-        success = install_driver(driver, system_info.id, system_info.version_id, branch_locked)
+        success = install_driver(
+            driver,
+            system_info.id,
+            system_info.version_id,
+            branch_locked,
+        )
+
         if not success:
             sys.exit(1)
+
     else:
         exit(
             0
-            if print_instructions(driver, system_info.id, system_info.version_id, branch_locked)
+            if print_instructions(
+                driver,
+                system_info.id,
+                system_info.version_id,
+                branch_locked,
+            )
             else 1
         )

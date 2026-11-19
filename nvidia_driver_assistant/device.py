@@ -1,19 +1,8 @@
-"""Device class and GPU architecture logic."""
+"""GPU device classification using NVIDIA's supportedchips documents."""
 
-import re
 import logging
 
 from .config import (
-    ARCHITECTURE_REGISTRY,
-    ARCHITECTURE_MIN_DRIVER,
-    OPEN_CAPABLE_ARCHS,
-    OPEN_UNSUPPORTED_ARCHS,
-    DISTRO_NON_LEGACY_DEFAULT_BRANCH,
-    DISTRO_580_LEGACY_OVERRIDE_BRANCH,
-    ENABLE_LEGACY_OPENKERNEL_RESTRICTION,
-    ENABLE_ARCHITECTURE_CHECK,
-    AUTO_FALLBACK,
-    min_supported_legacy_branch,
     proprietary_required,
     proprietary_supported,
     default,
@@ -21,282 +10,180 @@ from .config import (
     support_flags,
 )
 
+try:
+    from .supported_chips import SUPPORTED_CHIPS, SUPPORTED_CHIPS_580
+except ImportError:
+    SUPPORTED_CHIPS = None
+    SUPPORTED_CHIPS_580 = None
+
 
 def _safe_branch_int(branch_str, default=-1):
+    """Return the numeric major version of a legacy branch."""
     try:
-        return int(branch_str.split('.')[0])
-    except (ValueError, IndexError, AttributeError):
+        return int(str(branch_str).split(".")[0])
+    except (ValueError, IndexError, AttributeError, TypeError):
         return default
 
 
+def _normalise_pci_id(device_id):
+    """Normalise a PCI device ID to the four-character NVIDIA device ID."""
+    value = str(device_id or "").strip().lower()
+
+    if value.startswith("0x"):
+        value = value[2:]
+
+    return value
+
+
+def _normalise_legacy_branch(branch):
+    """Keep legacy branch values in the conventional NVIDIA xx.xx format."""
+    if branch is None:
+        return None
+
+    value = str(branch).strip()
+    if not value:
+        return None
+
+    if value.isdigit():
+        return value + ".xx"
+
+    return value
+
+
 class Device(object):
-    def __init__(self, id, name, features, legacy_branch, subvendorid=None, subdevid=None):
+    def __init__(
+        self,
+        id,
+        name,
+        features,
+        legacy_branch,
+        subvendorid=None,
+        subdevid=None,
+    ):
         super(Device, self).__init__()
+
         self.id = id
+        self.pci_id_key = _normalise_pci_id(id)
         self.name = name
-        self.features = features
-        self.original_legacy_branch = legacy_branch  # preserve original JSON legacybranch
-        self.legacy_branch = legacy_branch
-        self.driver_hint = ""
-        self.architecture = "unknown"
-        self.chip_family = ""
+        self.features = features or []
+
+        # Keep the JSON legacybranch as the primary legacy classification.
+        self.json_legacy_branch = _normalise_legacy_branch(legacy_branch)
+        self.original_legacy_branch = self.json_legacy_branch
+        self.legacy_branch = self.json_legacy_branch
+
         self.subvendorid = subvendorid
         self.subdevid = subdevid
-        self.is_laptop_gpu = self._is_laptop_gpu(name)
-        self._determine_architecture()
-        self.legacy_int = _safe_branch_int(self.original_legacy_branch) if self.original_legacy_branch else -1
-        self._parse_features(features)
 
-    def _is_laptop_gpu(self, name):
-        """Determine if this is a laptop/mobile GPU"""
-        name_lower = name.lower()
+        # NVIDIA's latest supportedchips.html is the source for the latest
+        # driver branch classification. Its Current section identifies GPUs
+        # supported by the latest 6xx driver.
+        self.nvidia_supported_branch = None
+        if SUPPORTED_CHIPS:
+            self.nvidia_supported_branch = SUPPORTED_CHIPS.get(self.pci_id_key)
 
-        desktop_exceptions = [
-            '750 ti', '1050 ti', '1650 ti', '1660 ti',
-            '2060 ti', '2070 ti', '2080 ti', '3060 ti',
-            '3070 ti', '3080 ti', '3090 ti', '4060 ti',
-            '4070 ti', '4080 ti', '4090 ti', 'titan',
-            '750', '760', '770', '780', '950', '960', '970', '980',
-        ]
-        for exception in desktop_exceptions:
-            if exception in name_lower:
-                return False
+        # The JSON legacybranch remains authoritative when it is present.
+        # The NVIDIA document fills in a legacy branch only when JSON has none.
+        if not self.original_legacy_branch:
+            html_branch = self.nvidia_supported_branch
+            if html_branch and html_branch != "current":
+                self.original_legacy_branch = _normalise_legacy_branch(html_branch)
+                self.legacy_branch = self.original_legacy_branch
 
-        if re.search(r'\d{3,4}m\b', name_lower):
-            return True
-        if re.search(r'\bmx\d{3}\b', name_lower):
-            return True
-        if 'mobile' in name_lower or 'laptop' in name_lower or 'notebook' in name_lower:
-            return True
+        elif self.nvidia_supported_branch:
+            json_major = _safe_branch_int(self.original_legacy_branch)
+            html_major = _safe_branch_int(self.nvidia_supported_branch)
 
-        known_mobile_gpus = [
-            '960m', '965m', '970m', '980m',
-            '1050m', '1060m', '1070m', '1080m',
-            '1650m', '1660m', '2060m', '2070m',
-            '2080m', '3050m', '3060m', '3070m',
-            '3080m', '4050m', '4060m', '4070m',
-        ]
-        for mobile_gpu in known_mobile_gpus:
-            if mobile_gpu in name_lower:
-                return True
-
-        if re.search(r'\s+m\b', name_lower) and not re.search(r'\s+ti\b', name_lower):
-            return True
-
-        return False
-
-    def _determine_architecture(self):
-        """Determine GPU architecture from device name"""
-        self.architecture = self._get_architecture_from_device_name(self.name)
-        logging.debug("Device architecture determined: %s -> %s" % (self.name, self.architecture))
-
-        # ARCHITECTURE VS 580: If architecture is modern but JSON says legacy (<580), prioritize architecture
-        if self.architecture in OPEN_CAPABLE_ARCHS and self.original_legacy_branch:
-            legacy_major = _safe_branch_int(self.original_legacy_branch)
-            if legacy_major >= 0 and legacy_major < min_supported_legacy_branch:
+            if self.nvidia_supported_branch == "current" or (
+                html_major >= 0 and json_major >= 0 and html_major != json_major
+            ):
                 logging.warning(
-                    "Architecture override: %s (%s) marked as legacy branch %s, but architecture %s suggests modern card. Ignoring legacy flag.",
-                    self.name, self.id, self.original_legacy_branch, self.architecture
+                    "NVIDIA supportedchips classification for %s (%s) is %s, "
+                    "while supported-gpus.json assigns legacy branch %s. "
+                    "Keeping the JSON legacybranch value.",
+                    self.name,
+                    self.id,
+                    self.nvidia_supported_branch,
+                    self.original_legacy_branch,
                 )
-                self.original_legacy_branch = None
-                self.legacy_branch = None
 
-    def _get_architecture_from_device_name(self, device_name):
-        """Extract architecture from GPU device name using patterns from ARCHITECTURE_REGISTRY"""
-        if not device_name:
-            return "unknown"
+        self.legacy_int = (
+            _safe_branch_int(self.original_legacy_branch)
+            if self.original_legacy_branch
+            else -1
+        )
 
-        name_upper = device_name.upper()
+        # A device is considered current only if NVIDIA lists it in Current
+        # and the JSON database does not assign it a legacy branch.
+        self.supports_latest_6xx = (
+            self.nvidia_supported_branch == "current"
+            and not self.original_legacy_branch
+        )
 
-        for arch, info in ARCHITECTURE_REGISTRY.items():
-            for pattern in info["patterns"]:
-                if re.search(pattern, name_upper, re.IGNORECASE):
-                    return arch
+        # This set comes only from the Current section of supportedchips580.html.
+        self.supports_580 = bool(
+            SUPPORTED_CHIPS_580
+            and self.pci_id_key in SUPPORTED_CHIPS_580
+        )
 
-        return "unknown"
-
-    def _check_driver_compatibility(self, branch_major, legacy_override=False):
-        if self.architecture == "unknown":
-            return True, "Unknown architecture, assuming compatibility"
-
-        try:
-            requested = _safe_branch_int(branch_major)
-            if requested < 0:
-                return False, f"Invalid branch number: {branch_major}"
-            min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
-            min_required = _safe_branch_int(min_driver)
-
-            if requested < min_required:
-                min_supported, max_supported = self._get_supported_range(legacy_override)
-                return False, f"{self.architecture} requires drivers from {min_supported}.xx to {max_supported}.xx (requested: {requested}.xx)"
-
-            min_supported, max_supported = self._get_supported_range(legacy_override)
-            max_allowed = _safe_branch_int(max_supported, default=999)
-
-            if requested > max_allowed:
-                return False, f"{self.architecture} requires drivers from {min_supported}.xx to {max_supported}.xx (requested: {requested}.xx)"
-
-            return True, f"{self.architecture} compatible with {branch_major}.xx (supported range: {min_supported}.xx - {max_supported}.xx)"
-
-        except ValueError:
-            return False, f"Invalid branch number: {branch_major}"
-
-    def _get_supported_range(self, legacy_override=False):
-        min_driver = ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390")
-
-        if self.original_legacy_branch:
-            max_driver_int = self.legacy_int
-            if max_driver_int >= 0:
-                return min_driver, str(max_driver_int)
-            return min_driver, "470"
-        elif legacy_override:
-            return min_driver, "470"
-        else:
-            return min_driver, "999"
-
-    def _get_safe_fallback_branch(self, legacy_override=False):
-        min_driver, max_driver = self._get_supported_range(legacy_override)
-
-        if self.original_legacy_branch:
-            legacy_major = self.legacy_int
-            min_required = _safe_branch_int(ARCHITECTURE_MIN_DRIVER.get(self.architecture, "390"))
-            if legacy_major >= 0 and legacy_major >= min_required:
-                return str(legacy_major)
-
-        return min_driver
+        self.driver_hint = ""
+        self._parse_features(self.features)
 
     def _parse_features(self, features):
-        flags = []
-        for feat in features:
-            feat = feat.lower()
-            logging.debug("Device: has following feature: %s" % (feat))
-            if feat in support_flags:
-                flags.append(feat)
+        """Determine the permitted kernel-module flavour for this GPU."""
+        flags = set()
 
-        logging.debug("Device: has following flags: %s" % (flags))
-
-        # 0. supportedchips.html authoritative override (if available)
-        try:
-            from .supported_chips import SUPPORTED_CHIPS
-        except ImportError:
-            SUPPORTED_CHIPS = None
-
-        if SUPPORTED_CHIPS:
-            readme_key = self.id.lower().replace("0x", "")
-            readme_branch = SUPPORTED_CHIPS.get(readme_key)
-            if readme_branch and readme_branch != "current":
-                self.legacy_branch = readme_branch
-                self.original_legacy_branch = readme_branch
-                self.legacy_int = _safe_branch_int(readme_branch)
-                self.driver_hint = proprietary_required
-                logging.debug(
-                    "supported_chips: %s -> legacy %s (authoritative)",
-                    self.id, readme_branch,
-                )
-                return
-
-        # 1. Non-legacy cards
-        if not self.original_legacy_branch and DISTRO_NON_LEGACY_DEFAULT_BRANCH:
-            compatible, message = self._check_driver_compatibility(
-                DISTRO_NON_LEGACY_DEFAULT_BRANCH,
-                legacy_override=False
+        for feature in features:
+            feature_name = str(feature).lower()
+            logging.debug(
+                "Device %s: supported-gpus.json feature: %s",
+                self.id,
+                feature_name,
             )
-            if compatible:
-                self.legacy_branch = DISTRO_NON_LEGACY_DEFAULT_BRANCH + ".00"
-                self.driver_hint = proprietary_required
-                logging.info(
-                    "Non-legacy default: %s set to branch %s - %s"
-                    % (self.name, self.legacy_branch, message)
-                )
-                return
-            else:
-                min_driver, max_driver = self._get_supported_range(legacy_override=False)
-                logging.error(
-                    "Non-legacy default FAILED for %s (%s): %s",
-                    self.name, self.architecture, message
-                )
-                if AUTO_FALLBACK:
-                    safe_branch = self._get_safe_fallback_branch(legacy_override=False)
-                    self.legacy_branch = safe_branch + ".00"
-                    self.driver_hint = proprietary_required
-                    logging.warning(
-                        "Auto-fallback: %s using safe branch %s (requested: %s)",
-                        self.name, safe_branch, DISTRO_NON_LEGACY_DEFAULT_BRANCH
-                    )
-                return
+            if feature_name in support_flags:
+                flags.add(feature_name)
 
-        # 2. 580+ legacy cards
-        if self.original_legacy_branch and DISTRO_580_LEGACY_OVERRIDE_BRANCH:
-            legacy_major_int = self.legacy_int
-            if legacy_major_int >= 0:
-                legacy_major = str(legacy_major_int)
-                if legacy_major_int >= 580:
-                    compatible, message = self._check_driver_compatibility(
-                        DISTRO_580_LEGACY_OVERRIDE_BRANCH,
-                        legacy_override=True
-                    )
-                    if compatible:
-                        self.legacy_branch = DISTRO_580_LEGACY_OVERRIDE_BRANCH + ".00"
-                        self.driver_hint = proprietary_required
-                        logging.info(
-                            "580+ legacy override: %s changed from %s to %s - %s"
-                            % (self.name, legacy_major, DISTRO_580_LEGACY_OVERRIDE_BRANCH, message)
-                        )
-                        return
-                    else:
-                        min_driver, max_driver = self._get_supported_range(legacy_override=True)
-                        logging.error(
-                            "580+ legacy override FAILED for %s (%s): %s",
-                            self.name, self.architecture, message
-                        )
-                        if AUTO_FALLBACK:
-                            safe_branch = self._get_safe_fallback_branch(legacy_override=True)
+        logging.debug(
+            "Device %s: NVIDIA branch=%s, legacy=%s, supports_580=%s, "
+            "supports_latest_6xx=%s, JSON flags=%s",
+            self.id,
+            self.nvidia_supported_branch,
+            self.original_legacy_branch,
+            self.supports_580,
+            self.supports_latest_6xx,
+            sorted(flags),
+        )
 
-                            original_compatible, original_message = self._check_driver_compatibility(
-                                legacy_major,
-                                legacy_override=False
-                            )
-
-                            if original_compatible:
-                                safe_branch = legacy_major
-                                logging.warning(
-                                    "580+ auto-fallback: %s using original JSON branch %s (%s)",
-                                    self.name, safe_branch, original_message
-                                )
-                            else:
-                                logging.warning(
-                                    "580+ auto-fallback: %s using safe branch %s (JSON branch %s invalid - %s)",
-                                    self.name, safe_branch, legacy_major, original_message
-                                )
-
-                            self.legacy_branch = safe_branch + ".00"
-                            self.driver_hint = proprietary_required
-                        return
-
-        # 3. Legacy branch openkernel restriction
-        if self.original_legacy_branch and ENABLE_LEGACY_OPENKERNEL_RESTRICTION:
-            legacy_major_int = self.legacy_int
-            if legacy_major_int >= 0 and legacy_major_int <= 580:
+        # Hard safety rule:
+        # every GPU assigned to a legacy branch <=580 must use the proprietary
+        # kernel module, regardless of any kernelopen flag in JSON.
+        if self.original_legacy_branch:
+            if self.legacy_int < 0 or self.legacy_int <= 580:
                 self.driver_hint = proprietary_required
                 logging.debug(
-                    "Legacy branch restriction: %s with legacy branch %s forced to proprietary",
-                    self.name, self.original_legacy_branch
+                    "Legacy kernel-module restriction: %s (%s), branch %s "
+                    "requires the proprietary kernel module.",
+                    self.name,
+                    self.id,
+                    self.original_legacy_branch,
                 )
                 return
 
-        # 4. Architecture-based check
-        if ENABLE_ARCHITECTURE_CHECK:
-            if self.architecture in OPEN_CAPABLE_ARCHS:
-                if open_supported in flags:
-                    self.driver_hint = default
-                else:
-                    self.driver_hint = proprietary_required
-            else:
-                self.driver_hint = proprietary_required
+        # NVIDIA's latest 6xx Current list is the authoritative indicator
+        # that the GPU is supported by the latest driver generation.
+        # As agreed, drivers newer than 580 use the open kernel module.
+        if self.supports_latest_6xx:
+            self.driver_hint = default
+            logging.debug(
+                "NVIDIA Current GPU: %s (%s) requires the open kernel module.",
+                self.name,
+                self.id,
+            )
             return
 
-        # 5. Normal logic (JSON-based feature flags)
-        if not flags or open_supported not in flags:
+        # For devices not listed in the latest Current table, retain the
+        # feature-based fallback supplied by supported-gpus.json.
+        if open_supported not in flags:
             self.driver_hint = proprietary_required
         elif proprietary_supported in flags:
             self.driver_hint = proprietary_supported
