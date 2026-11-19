@@ -1,62 +1,94 @@
-"""Parser for NVIDIA supportedchips.html (authoritative GPU -> branch source).
+"""Parsers for NVIDIA's per-driver supportedchips.html documents.
 
-The HTML is gtk-doc generated.  Each section is anchored by an
-`<a name="...">` tag placed immediately before its heading/table:
-
-  <p><a name="Current" id="Current"></a></p>
-  <h3>Current NVIDIA GPUs</h3>
-  ...
-  <p><a name="legacy_580.xx" id="legacy_580.xx"></a> The 580.xx
-  driver supports the following set of GPUs:</p>
-  ...
-  <p><a name="legacy_173.14.xx" id="legacy_173.14.xx"></a> The
-  173.14.xx driver supports the following set of GPUs:</p>
-
-GPU rows are <tr id="devidXXXX"> (or <tr id="devidXXXX_VVVV_DDDD"> for
-subsystem variants).  Each row inherits the branch of the nearest
-preceding anchor.  If the same base device ID appears in both "current"
-and a legacy section, the legacy section wins (defensive against
-NVIDIA marking modern cards as legacy, and vice versa).
+The New Feature Branch document is parsed as a complete device-to-branch
+map. The 580 document is parsed separately and contributes only its
+Current table, because its legacy sections describe older drivers rather
+than 580 compatibility.
 """
 
+import logging
 import os
 import re
-import logging
+from html.parser import HTMLParser
 
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.path.join(_PACKAGE_DIR, "data")
 _CHIPS_FILE = os.path.join(_DATA_DIR, "supportedchips.html")
+_CHIPS_580_FILE = os.path.join(_DATA_DIR, "supportedchips580.html")
 
-# <a name="Current" ...> or <a name="legacy_580.xx" ...> or legacy_173.14.xx
-_SECTION_RE = re.compile(
-    r'<a\s+name="(Current|legacy_(\d+)(?:\.\d+)*\.xx)"',
-    re.IGNORECASE,
-)
-
-# <tr id="devidXXXX"> or <tr id="devidXXXX_VVVV_DDDD">
+_SECTION_RE = re.compile(r"^legacy_(\d+)(?:\.\d+)*\.xx$", re.IGNORECASE)
 _ROW_RE = re.compile(
-    r'<tr\s+id="devid([0-9A-Fa-f]{4})(?:_[0-9A-Fa-f]{4}_[0-9A-Fa-f]{4})?"',
+    r"^devid([0-9a-f]{4})(?:_[0-9a-f]{4}_[0-9a-f]{4})?$",
     re.IGNORECASE,
 )
 
 
-def _collect_sections(content):
-    """Return sorted list of (position, branch) section anchors."""
-    sections = []
-    for m in _SECTION_RE.finditer(content):
-        if m.group(1).lower() == "current":
-            branch = "current"
-        else:
-            branch = m.group(2)  # e.g. "580", "173", "96", "71"
-        sections.append((m.start(), branch))
-    return sections
+class _SupportedChipsHTMLParser(HTMLParser):
+    """Collect device rows and the section anchor active when each begins."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.current_branch = None
+        self.current_row = None
+        self.rows = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = {key.lower(): value for key, value in attrs if value is not None}
+
+        if tag.lower() == "a":
+            anchor = attrs.get("name") or attrs.get("id")
+            if anchor:
+                if anchor.lower() == "current":
+                    self.current_branch = "current"
+                else:
+                    match = _SECTION_RE.match(anchor)
+                    if match:
+                        self.current_branch = match.group(1)
+            return
+
+        if tag.lower() == "tr":
+            row_id = attrs.get("id", "")
+            match = _ROW_RE.match(row_id)
+            if match and self.current_branch:
+                self.current_row = {
+                    "device_id": match.group(1).lower(),
+                    "branch": self.current_branch,
+                    "text": [],
+                }
+
+    def handle_data(self, data):
+        if self.current_row is not None and data.strip():
+            self.current_row["text"].append(data.strip())
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "tr" and self.current_row is not None:
+            self.current_row["name_text"] = " ".join(self.current_row.pop("text"))
+            self.rows.append(self.current_row)
+            self.current_row = None
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
 
 
-def parse(path=None):
-    """Parse supportedchips.html -> {device_id_lowercase: branch}.
+def parse_html(content):
+    """Parse HTML text and return row records, or None if no device rows exist."""
+    if not isinstance(content, str) or not content.strip():
+        return None
 
-    Returns None if the file is missing or no entries are found.
-    """
+    parser = _SupportedChipsHTMLParser()
+    try:
+        parser.feed(content)
+        parser.close()
+    except Exception as exc:
+        logging.warning("supported_chips: HTML parsing failed: %s", exc)
+        return None
+
+    return parser.rows or None
+
+
+def parse_records(path=None):
+    """Return parsed row records from a file, or None when unavailable."""
     if path is None:
         path = _CHIPS_FILE
 
@@ -65,61 +97,95 @@ def parse(path=None):
         return None
 
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-    except OSError as e:
-        logging.warning("supported_chips: cannot read %s: %s", path, e)
+        with open(path, "r", encoding="utf-8", errors="replace") as stream:
+            content = stream.read()
+    except OSError as exc:
+        logging.warning("supported_chips: cannot read %s: %s", path, exc)
         return None
 
-    sections = _collect_sections(content)
-    if not sections:
-        logging.warning("supported_chips: no section anchors in %s", path)
+    rows = parse_html(content)
+    if rows is None:
+        logging.warning("supported_chips: no device rows found in %s", path)
+    return rows
+
+
+def parse(path=None):
+    """Parse the complete New Feature Branch document as {PCI ID: branch}.
+
+    If a device ID occurs in both Current and a legacy section, the legacy
+    section wins. This prevents a duplicate Current row from hiding an
+    explicit legacy assignment.
+    """
+    rows = parse_records(path)
+    if not rows:
         return None
-
-    branches_found = sorted({b for _, b in sections})
-    logging.debug(
-        "supported_chips: %d section anchors found: %s",
-        len(sections), branches_found,
-    )
-
-    has_current = any(b == "current" for _, b in sections)
-    has_legacy = any(b != "current" for _, b in sections)
-    if not has_current or not has_legacy:
-        logging.warning(
-            "supported_chips: unexpected section set in %s "
-            "(current=%s, legacy=%s) — legacy detection may be incomplete",
-            path, has_current, has_legacy,
-        )
 
     result = {}
-    for m in _ROW_RE.finditer(content):
-        devid = m.group(1).lower()
-        row_pos = m.start()
+    for row in rows:
+        device_id = row["device_id"]
+        branch = row["branch"]
 
-        branch = None
-        for marker_pos, marker_branch in sections:
-            if marker_pos < row_pos:
-                branch = marker_branch
-            else:
-                break
+        # Preserve the existing precedence: every explicit legacy row wins
+        # over Current, and the last legacy occurrence wins if NVIDIA repeats
+        # a base device ID in multiple legacy sections.
+        if device_id not in result or branch != "current":
+            result[device_id] = branch
 
-        if branch is None:
-            continue
+    return result or None
 
-        # Legacy wins over current if the same devid appears in both
-        if devid not in result or branch != "current":
-            result[devid] = branch
 
-    if not result:
-        logging.warning("supported_chips: parsed zero entries from %s", path)
+def parse_current(path=None):
+    """Return IDs found in this document's Current table only.
+
+    In particular, legacy sections later in supportedchips580.html are
+    ignored. A device appearing in both Current and a later legacy section
+    remains part of the Current set for this driver's compatibility check.
+    """
+    if path is None:
+        path = _CHIPS_580_FILE
+
+    rows = parse_records(path)
+    if not rows:
         return None
 
-    logging.debug("supported_chips: loaded %d entries from %s", len(result), path)
-    return result
+    result = {row["device_id"] for row in rows if row["branch"] == "current"}
+    return result or None
 
 
-# Load at import time.  Missing/invalid file -> None -> JSON fallback path.
+def validate_documents(latest_path=None, legacy580_path=None):
+    """Validate both source documents and return their parsed data.
+
+    Raises ValueError when either file is missing, malformed, or does not
+    contain the expected section data. The PKGBUILD uses this at build time
+    so a broken download or changed NVIDIA HTML layout cannot produce a
+    package with incomplete compatibility data.
+    """
+    latest = parse(latest_path)
+    if not latest:
+        raise ValueError("supportedchips.html contains no parseable NVIDIA device rows")
+
+    branches = set(latest.values())
+    if "current" not in branches:
+        raise ValueError("supportedchips.html has no parseable Current GPU rows")
+    if not any(branch != "current" for branch in branches):
+        raise ValueError("supportedchips.html has no parseable legacy GPU rows")
+
+    current580 = parse_current(legacy580_path)
+    if not current580:
+        raise ValueError("supportedchips580.html has no parseable Current GPU rows")
+
+    logging.info(
+        "supported_chips: validated %d latest device IDs (%d branches) and %d 580 Current IDs",
+        len(latest), len(branches), len(current580),
+    )
+    return latest, current580
+
+
+# Load at import time. The Arch package build validates that both files are
+# present; source-tree tests may run without the vendor documents installed.
 SUPPORTED_CHIPS = parse()
+SUPPORTED_CHIPS_580 = parse_current()
+SUPPORTED_CHIPS_580_CURRENT = SUPPORTED_CHIPS_580
 
 
 if __name__ == "__main__":
@@ -127,52 +193,23 @@ if __name__ == "__main__":
     from collections import Counter
 
     target = sys.argv[1] if len(sys.argv) > 1 else _CHIPS_FILE
-    logging.basicConfig(level=logging.DEBUG if "-v" in sys.argv else logging.INFO)
-
+    logging.basicConfig(level=logging.INFO)
     data = parse(target)
     if data is None:
-        print("Parser returned None (file missing or no entries)")
-        sys.exit(1)
+        print("Parser returned no device entries")
+        raise SystemExit(1)
 
     counts = Counter(data.values())
-
-    def _sort_key(item):
-        branch, _count = item
-        if branch == "current":
-            return (1, 0)
-        try:
-            return (0, -int(branch.split(".")[0]))
-        except ValueError:
-            return (0, 0)
-
     print("Total unique device IDs: %d" % len(data))
-    for branch, count in sorted(counts.items(), key=_sort_key):
+    for branch, count in sorted(
+        counts.items(),
+        key=lambda item: (item[0] == "current", -int(item[0]) if item[0].isdigit() else 0),
+    ):
         print("  %-8s %d entries" % (branch, count))
 
-    print("\nSpot checks:")
-    expected = [
-        ("1380", "580"),   # GTX 750 Ti (Maxwell, legacy 580)
-        ("1b06", "580"),   # GTX 1080 Ti (Pascal, legacy 580)
-        ("1d81", "580"),   # TITAN V (Volta, legacy 580)
-        ("0fc6", "470"),   # GTX 650 (Kepler, legacy 470)
-        ("06c0", "390"),   # GTX 480 (Fermi, legacy 390)
-        ("00c2", "304"),   # 6800 LE (pre-Curie, legacy 304)
-        ("2783", "current"),  # RTX 4070 SUPER (Ada)
-        ("2d18", "current"),  # RTX 5070 Laptop (Blackwell)
-    ]
-    all_ok = True
-    for devid, expected_branch in expected:
-        actual = data.get(devid)
-        status = "OK" if actual == expected_branch else "MISMATCH"
-        if actual != expected_branch:
-            all_ok = False
-        print("  %s -> %-8s (expected %-8s) [%s]"
-              % (devid, actual, expected_branch, status))
-
-    print()
-    if all_ok:
-        print("All spot checks passed.")
-        sys.exit(0)
-    else:
-        print("Some spot checks failed.")
-        sys.exit(1)
+    if len(sys.argv) > 2:
+        current = parse_current(sys.argv[2])
+        if not current:
+            print("580 Current parser returned no device entries")
+            raise SystemExit(1)
+        print("580 Current unique device IDs: %d" % len(current))

@@ -21,14 +21,19 @@ jobs:
           sudo apt-get install -y python3-gi python3-yaml umockdev gir1.2-umockdev-1.0
           sudo apt-get install -y python3-aptdaemon python3-aptdaemon.test
 
+      - name: Run NVIDIA supportedchips parser tests
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_supported_chips_parser.py' -v
+
       - name: Run original test suite
         run: |
-          cd $GITHUB_WORKSPACE
+          cd "$GITHUB_WORKSPACE"
           PYTHONPATH=. python3 tests/run --suite test_nvidia_driver_assistant.py
 
       - name: Run extended test suite (moretests)
         run: |
-          cd $GITHUB_WORKSPACE
+          cd "$GITHUB_WORKSPACE"
           PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
 
       ###################################################################
@@ -41,7 +46,7 @@ jobs:
       - name: Full compatibility matrix (informational – never fails)
         continue-on-error: true
         run: |
-          cd $GITHUB_WORKSPACE
+          cd "$GITHUB_WORKSPACE"
 
           # --- Supported distros (comment out those you don't need) ---
           DISTROS=(
@@ -88,7 +93,6 @@ jobs:
 
               echo ""
               echo "---- $DISTRO : $SCENARIO ----"
-              # Full output, exit code ignored
               PYTHONPATH=. ./nvidia-driver-assistant $FLAG --distro "$DISTRO" 2>&1 || true
               echo "---- end $SCENARIO ----"
             done
