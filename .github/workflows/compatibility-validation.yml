@@ -21,7 +21,7 @@ jobs:
           sudo apt-get install -y python3-gi python3-yaml umockdev gir1.2-umockdev-1.0
           sudo apt-get install -y python3-aptdaemon python3-aptdaemon.test
 
-      - name: Download NVIDIA supportedchips data
+      - name: Download and validate all NVIDIA supportedchips data
         run: |
           set -euo pipefail
 
@@ -29,71 +29,81 @@ jobs:
           NVIDIA_CHIPS_BASE="https://us.download.nvidia.com/XFree86/Linux-x86_64"
 
           echo "==> Fetching NVIDIA driver directory index..."
-
           INDEX_HTML="$(curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 "${NVIDIA_INDEX_URL}")"
 
-          echo "==> Determining latest NVIDIA 6xx version..."
+          latest_nvidia_version() {
+            local series="$1"
+            local version_regex
 
-          LATEST_6XX_VERSION="$(
+            case "${series}" in
+              6xx) version_regex='6[0-9]{2}\.[0-9]+(\.[0-9]+)?' ;;
+              580|470|390|340) version_regex="${series}\.[0-9]+(\.[0-9]+)?" ;;
+              *)
+                echo "ERROR: Unsupported NVIDIA series: ${series}" >&2
+                return 1
+                ;;
+            esac
+
             printf '%s\n' "${INDEX_HTML}" \
-              | grep -oE '6[0-9]{2}\.[0-9]+(\.[0-9]+)?' \
+              | grep -oE "${version_regex}" \
               | sort -Vu \
-              | tail -n1 || true
-          )"
+              | tail -n1
+          }
 
-          if [[ -z "${LATEST_6XX_VERSION}" ]]; then
-            echo "ERROR: Could not determine the latest NVIDIA 6xx version"
-            exit 1
-          fi
+          download_supportedchips() {
+            local series="$1"
+            local filename="$2"
+            local version="$3"
 
-          echo "==> Using NVIDIA 6xx version: ${LATEST_6XX_VERSION}"
+            if [[ -z "${version}" ]]; then
+              echo "ERROR: Could not determine latest NVIDIA ${series} version" >&2
+              return 1
+            fi
 
-          echo "==> Determining latest NVIDIA 580.xx version..."
+            local url="${NVIDIA_CHIPS_BASE}/${version}/README/supportedchips.html"
+            echo "==> NVIDIA ${series}: ${version}"
+            echo "    ${url}"
 
-          LATEST_580_VERSION="$(
-            printf '%s\n' "${INDEX_HTML}" \
-              | grep -oE '580\.[0-9]+(\.[0-9]+)?' \
-              | sort -Vu \
-              | tail -n1 || true
-          )"
+            curl -fL --retry 5 --retry-delay 2 --connect-timeout 10 \
+              -o "${DATA_DIR}/${filename}" "${url}"
 
-          if [[ -z "${LATEST_580_VERSION}" ]]; then
-            echo "ERROR: Could not determine the latest NVIDIA 580.xx version"
-            exit 1
-          fi
-
-          echo "==> Using NVIDIA 580.xx version: ${LATEST_580_VERSION}"
+            if [[ ! -s "${DATA_DIR}/${filename}" ]]; then
+              echo "ERROR: NVIDIA ${series} document is empty" >&2
+              return 1
+            fi
+          }
 
           DATA_DIR="nvidia_driver_assistant/data"
           mkdir -p "${DATA_DIR}"
 
-          echo "==> Downloading latest 6xx supportedchips.html..."
+          VERSION_6XX="$(latest_nvidia_version 6xx)" || true
+          VERSION_580="$(latest_nvidia_version 580)" || true
+          VERSION_470="$(latest_nvidia_version 470)" || true
+          VERSION_390="$(latest_nvidia_version 390)" || true
+          VERSION_340="$(latest_nvidia_version 340)" || true
 
-          curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 \
-            -o "${DATA_DIR}/supportedchips.html" \
-            "${NVIDIA_CHIPS_BASE}/${LATEST_6XX_VERSION}/README/supportedchips.html"
+          download_supportedchips 6xx supportedchips.html "${VERSION_6XX}"
+          download_supportedchips 580 supportedchips580.html "${VERSION_580}"
+          download_supportedchips 470 supportedchips470.html "${VERSION_470}"
+          download_supportedchips 390 supportedchips390.html "${VERSION_390}"
+          download_supportedchips 340 supportedchips340.html "${VERSION_340}"
 
-          echo "==> Downloading 580.xx supportedchips.html..."
-
-          curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 \
-            -o "${DATA_DIR}/supportedchips580.html" \
-            "${NVIDIA_CHIPS_BASE}/${LATEST_580_VERSION}/README/supportedchips.html"
-
-          echo "==> Validating downloaded NVIDIA compatibility data..."
+          echo "==> Validating all five NVIDIA documents..."
 
           PYTHONPATH=. python3 - <<'PY'
-          from nvidia_driver_assistant.supported_chips import validate_documents
-
-          latest, current580 = validate_documents()
-
-          print(
-              "Validated NVIDIA data: %d latest device IDs; %d IDs in 580 Current"
-              % (len(latest), len(current580))
+          from nvidia_driver_assistant.supported_chips import (
+              SUPPORTED_CHIPS,
+              validate_all_documents,
           )
+
+          supported = validate_all_documents()
+
+          for branch in ("6xx", "580", "470", "390", "340"):
+              print("Validated NVIDIA %s: %d device IDs" % (branch, len(supported[branch])))
 
           print(
               "RTX 4070 SUPER (2783) latest classification: %s"
-              % latest.get("2783")
+              % SUPPORTED_CHIPS.get("2783")
           )
           PY
 

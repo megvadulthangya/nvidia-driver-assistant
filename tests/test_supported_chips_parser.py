@@ -38,6 +38,69 @@ SUPPORTED_580_HTML = """\
 """
 
 
+LEGACY_470_HTML = """\
+<h3>NVIDIA GeForce GPUs</h3>
+<table>
+  <tr><th>NVIDIA GPU product</th><th>Device PCI ID*</th><th>VDPAU features</th></tr>
+  <tr><td>NVIDIA GeForce GTX 650</td><td>0FC6</td><td>D</td></tr>
+  <tr><td>NVIDIA GeForce GT 640M LE</td><td>0FD2 1028 0595</td><td>C</td></tr>
+</table>
+<h3>NVIDIA Quadro GPUs</h3>
+<table>
+  <tr><td>NVIDIA GPU product</td><td>Device PCI ID*</td><td>VDPAU features</td></tr>
+  <tr><td>Quadro example</td><td>06D8</td><td>C</td></tr>
+</table>
+<p>Below are the legacy GPUs that are no longer supported in the unified driver.</p>
+<p>The 390.xx driver supports the following set of GPUs:</p>
+<table>
+  <tr><th>NVIDIA GPU product</th><th>Device PCI ID*</th><th>VDPAU features</th></tr>
+  <tr><td>GeForce GTS 450</td><td>0DC4</td><td>C</td></tr>
+</table>
+"""
+
+
+LEGACY_390_HTML = """\
+<h3>NVIDIA GeForce GPUs</h3>
+<table>
+  <tr><th>NVIDIA GPU product</th><th>Device PCI ID*</th><th>VDPAU features</th></tr>
+  <tr><td>GeForce GTX 480</td><td>06C0</td><td>C</td></tr>
+  <tr><td>GeForce GTS 450</td><td>0DC4</td><td>C</td></tr>
+</table>
+<h3>NVIDIA GRID GPUs</h3>
+<table>
+  <tr><th>NVIDIA GPU product</th><th>Device PCI ID*</th><th>VDPAU features</th></tr>
+  <tr><td>GRID K520</td><td>118A</td><td>D</td></tr>
+</table>
+<p>Below are the legacy GPUs that are no longer supported in the unified driver.</p>
+<p>The 340.xx driver supports the following set of GPUs:</p>
+<table>
+  <tr><th>NVIDIA GPU product</th><th>Device PCI ID*</th><th>VDPAU features</th></tr>
+  <tr><td>GeForce 8800 GTX</td><td>0191</td><td>-</td></tr>
+</table>
+"""
+
+
+LEGACY_340_HTML = """\
+<h3>NVIDIA GeForce GPUs</h3>
+<table>
+  <tr><td>NVIDIA GPU product</td><td>Device PCI ID*</td><td>VDPAU features</td></tr>
+  <tr><td>GeForce 8800 GTX</td><td>0x0191</td><td>-</td></tr>
+  <tr><td>GeForce GT 130</td><td>0x062E 0x0605</td><td>A</td></tr>
+</table>
+<h3>NVIDIA GRID GPUs</h3>
+<table>
+  <tr><td>NVIDIA GPU product</td><td>Device PCI ID*</td><td>VDPAU features</td></tr>
+  <tr><td>GRID K340</td><td>0x0FEF</td><td>D</td></tr>
+</table>
+<p>Below are the legacy GPUs that are no longer supported in the unified driver.</p>
+<p>The 304.xx driver supports the following set of GPUs:</p>
+<table>
+  <tr><td>NVIDIA GPU product</td><td>Device PCI ID</td></tr>
+  <tr><td>GeForce 6800 Ultra</td><td>0x0040</td></tr>
+</table>
+"""
+
+
 class SupportedChipsParserTests(unittest.TestCase):
 
     def _write_temp(self, directory, filename, content):
@@ -47,11 +110,7 @@ class SupportedChipsParserTests(unittest.TestCase):
 
     def test_latest_document_maps_current_and_legacy_sections(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = self._write_temp(
-                tmpdir,
-                "supportedchips.html",
-                LATEST_HTML,
-            )
+            path = self._write_temp(tmpdir, "supportedchips.html", LATEST_HTML)
             branch_map = supported_chips.parse(path)
 
         self.assertEqual(branch_map["2d98"], "current")
@@ -73,29 +132,18 @@ class SupportedChipsParserTests(unittest.TestCase):
     def test_subsystem_variants_reduce_to_base_device_id(self):
         rows = supported_chips.parse_html(SUPPORTED_580_HTML)
 
-        self.assertIn(
-            "2d98",
-            {row["device_id"] for row in rows},
-        )
+        self.assertIn("2d98", {row["device_id"] for row in rows})
 
     def test_legacy_entry_wins_over_duplicate_current_entry(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            path = self._write_temp(
-                tmpdir,
-                "supportedchips.html",
-                LATEST_HTML,
-            )
+            path = self._write_temp(tmpdir, "supportedchips.html", LATEST_HTML)
             branch_map = supported_chips.parse(path)
 
         self.assertEqual(branch_map["1340"], "580")
 
     def test_build_validation_requires_both_documents(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            latest_path = self._write_temp(
-                tmpdir,
-                "supportedchips.html",
-                LATEST_HTML,
-            )
+            latest_path = self._write_temp(tmpdir, "supportedchips.html", LATEST_HTML)
             chips580_path = self._write_temp(
                 tmpdir,
                 "supportedchips580.html",
@@ -110,6 +158,59 @@ class SupportedChipsParserTests(unittest.TestCase):
         self.assertEqual(latest["1340"], "580")
         self.assertEqual(latest["2d98"], "current")
         self.assertEqual(current580, {"1340", "2d98"})
+
+    def test_legacy_470_table_parser_reads_all_primary_product_tables(self):
+        rows = supported_chips.parse_legacy_html(LEGACY_470_HTML)
+        ids = {row["device_id"] for row in rows}
+
+        self.assertEqual(ids, {"0fc6", "0fd2", "06d8"})
+
+    def test_legacy_390_table_parser_reads_primary_list_only(self):
+        rows = supported_chips.parse_legacy_html(LEGACY_390_HTML)
+        ids = {row["device_id"] for row in rows}
+
+        self.assertEqual(ids, {"06c0", "0dc4", "118a"})
+        self.assertNotIn("0191", ids)
+
+    def test_legacy_340_normalizes_prefix_and_uses_only_first_id(self):
+        rows = supported_chips.parse_legacy_html(LEGACY_340_HTML)
+        ids = {row["device_id"] for row in rows}
+
+        self.assertEqual(ids, {"0191", "062e", "0fef"})
+        self.assertNotIn("0605", ids)
+        self.assertNotIn("0040", ids)
+
+    def test_legacy_parser_requires_a_clear_legacy_boundary(self):
+        html = """<table><tr><th>Device PCI ID</th></tr>
+        <tr><td>0x0191</td></tr></table>"""
+
+        self.assertIsNone(supported_chips.parse_legacy_html(html))
+
+    def test_all_document_validation_returns_independent_driver_sets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            latest_path = self._write_temp(tmpdir, "supportedchips.html", LATEST_HTML)
+            chips580_path = self._write_temp(
+                tmpdir,
+                "supportedchips580.html",
+                SUPPORTED_580_HTML,
+            )
+            chips470_path = self._write_temp(tmpdir, "supportedchips470.html", LEGACY_470_HTML)
+            chips390_path = self._write_temp(tmpdir, "supportedchips390.html", LEGACY_390_HTML)
+            chips340_path = self._write_temp(tmpdir, "supportedchips340.html", LEGACY_340_HTML)
+
+            result = supported_chips.validate_all_documents(
+                latest_path,
+                chips580_path,
+                chips470_path,
+                chips390_path,
+                chips340_path,
+            )
+
+        self.assertEqual(result["470"], {"0fc6", "0fd2", "06d8"})
+        self.assertEqual(result["390"], {"06c0", "0dc4", "118a"})
+        self.assertEqual(result["340"], {"0191", "062e", "0fef"})
+        self.assertIn("1340", result["580"])
+        self.assertIn("2d98", result["6xx"])
 
     def test_empty_or_unrecognized_html_is_rejected(self):
         self.assertIsNone(
@@ -130,22 +231,9 @@ class DeviceClassificationTests(unittest.TestCase):
         latest_map,
         current580,
     ):
-        with patch.object(
-            device_module,
-            "SUPPORTED_CHIPS",
-            latest_map,
-        ):
-            with patch.object(
-                device_module,
-                "SUPPORTED_CHIPS_580",
-                current580,
-            ):
-                return Device(
-                    device_id,
-                    name,
-                    features,
-                    legacy_branch,
-                )
+        with patch.object(device_module, "SUPPORTED_CHIPS", latest_map):
+            with patch.object(device_module, "SUPPORTED_CHIPS_580", current580):
+                return Device(device_id, name, features, legacy_branch)
 
     def test_legacy_580_forces_closed_despite_kernelopen_json_flag(self):
         dev = self._make_device(
@@ -228,29 +316,8 @@ class Mixed580And6xxRecommendationTests(unittest.TestCase):
             "2d18": "current",
         }
 
-        legacy_gpu = Device(
-            "0x1380",
-            "GeForce GTX 750 Ti",
-            ["kernelopen"],
-            "580.xx",
-        )
-        modern_gpu = Device(
-            "0x2d18",
-            "GeForce RTX 5070",
-            ["kernelopen"],
-            None,
-        )
-
-        with patch.object(
-            device_module,
-            "SUPPORTED_CHIPS",
-            latest_map,
-        ):
-            with patch.object(
-                device_module,
-                "SUPPORTED_CHIPS_580",
-                current580,
-            ):
+        with patch.object(device_module, "SUPPORTED_CHIPS", latest_map):
+            with patch.object(device_module, "SUPPORTED_CHIPS_580", current580):
                 legacy_gpu = Device(
                     "0x1380",
                     "GeForce GTX 750 Ti",
@@ -264,15 +331,10 @@ class Mixed580And6xxRecommendationTests(unittest.TestCase):
                     None,
                 )
 
-        return {
-            "0x1380": legacy_gpu,
-            "0x2d18": modern_gpu,
-        }, legacy_gpu
+        return {"0x1380": legacy_gpu, "0x2d18": modern_gpu}, legacy_gpu
 
     def test_common_580_driver_selected_when_every_gpu_is_580_current(self):
-        devices, legacy_gpu = self._make_devices(
-            {"1380", "2d18"}
-        )
+        devices, legacy_gpu = self._make_devices({"1380", "2d18"})
 
         with patch.object(
             recommendation_module,
@@ -292,9 +354,7 @@ class Mixed580And6xxRecommendationTests(unittest.TestCase):
         self.assertIs(detected["0x1380"], legacy_gpu)
 
     def test_latest_6xx_prioritised_when_gpu_is_not_580_current(self):
-        devices, legacy_gpu = self._make_devices(
-            {"1380"}
-        )
+        devices, legacy_gpu = self._make_devices({"1380"})
 
         with patch.object(
             recommendation_module,
