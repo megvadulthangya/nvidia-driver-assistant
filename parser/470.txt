@@ -1,0 +1,115 @@
+<p>For the most complete and accurate listing of supported GPUs,
+please see the Supported Products List, available from the NVIDIA
+Linux x86_64 Graphics Driver download page. Please go to <a href=
+"http://www.nvidia.com/object/unix.html" target=
+"_top">http://www.nvidia.com/object/unix.html</a>, follow the
+Archive link under the Linux x86_64 heading, follow the link for
+the 470.256.02 driver, and then go to the Supported Products
+List.</p>
+<p>For an explanation of the VDPAU features column, please refer to
+<a href="vdpausupport.html#vdpau-implementation-limits-decoder"
+title="VdpDecoder">the section called &ldquo;VdpDecoder&rdquo;</a>
+of <a href="vdpausupport.html" title=
+"Appendix&nbsp;G.&nbsp;VDPAU Support">Appendix&nbsp;G, <i>VDPAU
+Support</i></a>.</p>
+<p>Note that the list of supported GPU products provided below and
+on the driver download page is provided to indicate which GPUs are
+supported by a particular driver version. Some designs
+incorporating supported GPUs may not be compatible with the NVIDIA
+Linux driver: in particular, notebook and all-in-one desktop
+designs with switchable (hybrid) or Optimus graphics will not work
+if means to disable the integrated graphics in hardware are not
+available. Hardware designs will vary from manufacturer to
+manufacturer, so please consult with a system's manufacturer to
+determine whether that particular system is compatible.</p>
+<p><a name="GeForce" id="GeForce"></a></p>
+<h3>NVIDIA GeForce GPUs</h3>
+<div class="informaltable">
+<table summary="(no summary available)" border="0">
+<colgroup>
+<col>
+<col>
+<col></colgroup>
+<thead>
+<tr>
+<th>NVIDIA GPU product</th>
+<th>Device PCI ID<a href="supportedchips.html#subsys">*</a></th>
+<th>VDPAU features</th>
+</tr>
+</thead>
+<tbody>
+<tr id="devid0FC0">
+<td>NVIDIA GeForce GT 640</td>
+<td>0FC0</td>
+<td>C</td>
+</tr>
+
+
+</tr>
+<tr id="devid20F2_10DE_1584">
+<td>NVIDIA A100-PG506-217</td>
+<td>20F2 10DE 1584</td>
+<td>J</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><a name="GRID" id="GRID"></a></p>
+<h3>NVIDIA GRID GPUs</h3>
+<div class="informaltable">
+<table summary="(no summary available)" border="0">
+<colgroup>
+<col>
+<col>
+<col></colgroup>
+<thead>
+<tr>
+<th>NVIDIA GPU product</th>
+<th>Device PCI ID<a href="supportedchips.html#subsys">*</a></th>
+<th>VDPAU features</th>
+</tr>
+</thead>
+<tbody>
+<tr id="devid118A">
+<td>GRID K520</td>
+<td>118A</td>
+<td>D</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Below are the legacy GPUs that are no longer supported in the
+unified driver. These GPUs will continue to be maintained through
+the special legacy NVIDIA GPU driver releases.</p>
+<p><a name="legacy_390.xx" id="legacy_390.xx"></a> The 390.xx
+driver supports the following set of GPUs:</p>
+<div class="informaltable">
+<table summary="(no summary available)" border="0">
+<colgroup>
+<col>
+<col>
+<col></colgroup>
+<thead>
+<tr>
+<th>NVIDIA GPU product</th>
+<th>Device PCI ID<a href="supportedchips.html#subsys">*</a></th>
+<th>VDPAU features</th>
+</tr>
+</thead>
+<tbody>
+<tr id="devid06C0">
+<td>GeForce GTX 480</td>
+<td>06C0</td>
+<td>C</td>
+</tr>
+
+
+
+Csak muattóba előfordulnak ilyenek is:
+
+
+<tr id="devid0FE3_17AA_3675">
+<td>NVIDIA GeForce GT 745A</td>
+<td>0FE3 17AA 3675</td>
+<td>D</td>
+</tr>
