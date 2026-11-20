@@ -112,6 +112,11 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_supported_chips_parser.py' -v
 
+      - name: Run MHWD NVIDIA IDs tests
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_mhwd_ids.py' -v
+
       - name: Run original test suite
         run: |
           cd "$GITHUB_WORKSPACE"

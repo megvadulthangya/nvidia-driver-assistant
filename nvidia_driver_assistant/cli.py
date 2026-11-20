@@ -28,6 +28,11 @@ from .output import (
     install_driver,
     print_instructions,
 )
+from .mhwd_ids import (
+    DEFAULT_IDS_DIR,
+    check_ids,
+    generate_ids,
+)
 
 
 # JSON paths.
@@ -151,6 +156,115 @@ def _resolve_mhwd_branch(device_id):
     return None
 
 
+def _format_id_list(device_ids, limit=20):
+    """Format a short preview of a list of PCI Device IDs."""
+    values = list(device_ids)
+
+    if not values:
+        return "(none)"
+
+    preview = ", ".join(values[:limit])
+
+    if len(values) > limit:
+        preview += ", ... (+%d more)" % (len(values) - limit)
+
+    return preview
+
+
+def _print_ids_check_report(reports):
+    """Print the read-only MHWD NVIDIA IDs audit."""
+    print("MHWD NVIDIA .ids audit")
+    print("======================")
+
+    errors_found = False
+    review_found = False
+
+    for report in reports:
+        branch = report["branch"]
+        filename = report["filename"]
+
+        print("")
+        print("%s (%s)" % (filename, branch))
+
+        if "error" in report:
+            errors_found = True
+            print("  [ERROR] %s" % report["error"])
+            continue
+
+        if report["matches"]:
+            print(
+                "  [MATCH] %d IDs; all entries match the NVIDIA document."
+                % report["listed_count"]
+            )
+            continue
+
+        review_found = True
+
+        print("  [REVIEW] The file differs from the NVIDIA document.")
+        print(
+            "  IDs in .ids:       %d"
+            % report["listed_count"]
+        )
+        print(
+            "  IDs in document:   %d"
+            % report["documented_count"]
+        )
+
+        if report["missing_ids"]:
+            print(
+                "  Documented but missing from .ids (%d): %s"
+                % (
+                    len(report["missing_ids"]),
+                    _format_id_list(report["missing_ids"]),
+                )
+            )
+
+        if report["undocumented_ids"]:
+            print(
+                "  Not found in NVIDIA document (%d): %s"
+                % (
+                    len(report["undocumented_ids"]),
+                    _format_id_list(report["undocumented_ids"]),
+                )
+            )
+
+        if report["duplicate_ids"]:
+            print(
+                "  Duplicate IDs (%d): %s"
+                % (
+                    len(report["duplicate_ids"]),
+                    _format_id_list(report["duplicate_ids"]),
+                )
+            )
+
+        if report["invalid_tokens"]:
+            print(
+                "  Unrecognized entries (%d): %s"
+                % (
+                    len(report["invalid_tokens"]),
+                    _format_id_list(report["invalid_tokens"]),
+                )
+            )
+
+    print("")
+    print("The audit did not modify any .ids file.")
+
+    if review_found:
+        print(
+            "Review items are informational. An ID missing from "
+            "NVIDIA's document is not automatically considered invalid."
+        )
+
+    if errors_found:
+        print("One or more files could not be checked.")
+        return 1
+
+    if not review_found:
+        print("All checked files match their corresponding NVIDIA lists.")
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -266,6 +380,36 @@ def main():
         type=str,
         help="NVIDIA PCI device ID used by --mhwd-branch",
     )
+
+    ids_group = parser.add_mutually_exclusive_group()
+
+    ids_group.add_argument(
+        "--generate-ids",
+        metavar="BRANCH",
+        choices=("6xx", "latest", "580", "470", "390", "340"),
+        help=(
+            "Generate one MHWD NVIDIA .ids file for the selected driver "
+            "branch: 6xx/latest, 580, 470, 390 or 340"
+        ),
+    )
+    ids_group.add_argument(
+        "--check-ids",
+        action="store_true",
+        help=(
+            "Audit existing NVIDIA .ids files without modifying them"
+        ),
+        default=False,
+    )
+
+    parser.add_argument(
+        "--ids-dir",
+        metavar="DIR",
+        help=(
+            "MHWD PCI IDs directory "
+            "(default: %s)" % DEFAULT_IDS_DIR
+        ),
+    )
+
     parser.add_argument(
         "--json",
         action="store_true",
@@ -280,6 +424,75 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # The ID-management operations are deliberately independent from
+    # hardware detection, driver recommendation and installation.
+    ids_mode = (
+        args.generate_ids is not None
+        or args.check_ids
+    )
+
+    if args.ids_dir and not ids_mode:
+        parser.error(
+            "--ids-dir can only be used with --generate-ids or --check-ids"
+        )
+
+    if ids_mode:
+        incompatible_options = (
+            args.install,
+            args.branch is not None,
+            args.supported_gpus is not None,
+            args.sys_path is not None,
+            args.os_release_path is not None,
+            args.distro is not None,
+            args.module_flavor is not None,
+            args.simulate_gpu is not None,
+            args.simulate_mixed,
+            args.simulate_badmix,
+            args.mhwd,
+            args.mhwd_config,
+            args.mhwd_branch,
+            args.mhwd_device_id is not None,
+            args.json,
+        )
+
+        if any(incompatible_options):
+            parser.error(
+                "--generate-ids and --check-ids are standalone operations "
+                "and cannot be combined with driver detection or "
+                "installation options"
+            )
+
+        try:
+            if args.generate_ids is not None:
+                result = generate_ids(
+                    args.generate_ids,
+                    ids_dir=args.ids_dir,
+                )
+
+                print(
+                    "Generated %s: %d device IDs"
+                    % (
+                        result["filename"],
+                        result["count"],
+                    )
+                )
+                print("Driver branch: %s" % result["branch"])
+                print("Output: %s" % result["path"])
+                return
+
+            reports = check_ids(ids_dir=args.ids_dir)
+
+        except (OSError, ValueError) as exc:
+            print("Error: %s" % exc, file=sys.stderr)
+            sys.exit(1)
+
+        exit_code = _print_ids_check_report(reports)
+
+        if exit_code:
+            sys.exit(exit_code)
+
+        return
 
     # MHWD asks for the branch of the specific PCI device currently
     # being processed. This mode deliberately bypasses global multi-GPU
