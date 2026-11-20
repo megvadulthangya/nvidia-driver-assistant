@@ -1,3 +1,4 @@
+
 """Main entry point and argument parsing for nvidia-driver-assistant."""
 
 import os
@@ -386,18 +387,16 @@ def main():
     ids_group.add_argument(
         "--generate-ids",
         metavar="BRANCH",
-        choices=("6xx", "latest", "580", "470", "390", "340"),
+        choices=("latest", "6xx", "580", "470", "390", "340"),
         help=(
-            "Generate one MHWD NVIDIA .ids file for the selected driver "
-            "branch: 6xx/latest, 580, 470, 390 or 340"
+            "Write one MHWD NVIDIA .ids list to stdout for the selected "
+            "driver branch: latest (or 6xx), 580, 470, 390 or 340"
         ),
     )
     ids_group.add_argument(
         "--check-ids",
         action="store_true",
-        help=(
-            "Audit existing NVIDIA .ids files without modifying them"
-        ),
+        help="Audit existing NVIDIA .ids files without modifying them",
         default=False,
     )
 
@@ -405,7 +404,7 @@ def main():
         "--ids-dir",
         metavar="DIR",
         help=(
-            "MHWD PCI IDs directory "
+            "MHWD PCI IDs directory used by --check-ids only "
             "(default: %s)" % DEFAULT_IDS_DIR
         ),
     )
@@ -425,16 +424,18 @@ def main():
 
     args = parser.parse_args()
 
-    # The ID-management operations are deliberately independent from
-    # hardware detection, driver recommendation and installation.
+    # ID generation and checking are standalone operations.
+    # Generation writes only to stdout; the caller decides where the
+    # resulting package file is staged.
     ids_mode = (
         args.generate_ids is not None
         or args.check_ids
     )
 
-    if args.ids_dir and not ids_mode:
+    if args.ids_dir and not args.check_ids:
         parser.error(
-            "--ids-dir can only be used with --generate-ids or --check-ids"
+            "--ids-dir can only be used with --check-ids. "
+            "--generate-ids writes its content to stdout."
         )
 
     if ids_mode:
@@ -465,21 +466,8 @@ def main():
 
         try:
             if args.generate_ids is not None:
-                result = generate_ids(
-                    args.generate_ids,
-                    ids_dir=args.ids_dir,
-                )
-
-                print(
-                    "Generated %s: %d device IDs"
-                    % (
-                        result["filename"],
-                        result["count"],
-                    )
-                )
-                print("Driver branch: %s" % result["branch"])
-                print("Output: %s" % result["path"])
-                return
+                sys.stdout.write(generate_ids(args.generate_ids))
+                return 0
 
             reports = check_ids(ids_dir=args.ids_dir)
 
@@ -492,7 +480,7 @@ def main():
         if exit_code:
             sys.exit(exit_code)
 
-        return
+        return 0
 
     # MHWD asks for the branch of the specific PCI device currently
     # being processed. This mode deliberately bypasses global multi-GPU
