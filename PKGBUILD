@@ -19,7 +19,7 @@ _390_version_override=""
 _340_version_override=""
 
 source=(
-  "git+https://github.com/megvadulthangya/nvidia-driver-assistant.git#branch=manjaro"
+  "git+https://github.com/megvadulthangya/nvidia-driver-assistant.git#branch=manjaro-upstream"
   "show-driver"
 )
 sha256sums=(
