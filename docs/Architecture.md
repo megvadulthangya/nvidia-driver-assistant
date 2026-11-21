@@ -1,724 +1,232 @@
 # Architecture
 
-This document describes how `nvidia-driver-assistant` integrates with
-`mhwd` on Manjaro. It documents the full chain from the command line
-to the package that `pacman` installs, and it identifies which
-component is responsible for each decision.
+This document describes how the Manjaro-targeted `nvidia-driver-assistant` works, how it evaluates NVIDIA devices, and how its command-line interfaces are consumed by MHWD.
 
-The chain has three independent pieces:
+The design has three cooperating parts:
 
-1. **`mhwd` (C++)** — parses the command line, walks the devices,
-   calls `nvidia-driver-assistant --mhwd-config` (via the patch), and
-   invokes the shell script.
-2. **`scripts/mhwd` (bash)** — sources the selected `MHWDCONFIG`,
-   resolves kernel module names, and calls `pacman`.
-3. **`nvidia-driver-assistant` (Python)** — the decision engine. It is
-   called twice: once for the config name (`--mhwd-config`), and once
-   for the kernel module flavor (`--mhwd`).
+1. **NVIDIA data** — `supported-gpus.json` and five NVIDIA `supportedchips.html` documents provide device and driver-branch information.
+2. **The Assistant (Python)** — detects GPUs, classifies their supported driver branches, selects the kernel-module flavour and exposes machine-readable interfaces.
+3. **Manjaro's MHWD packages** — use the Assistant's result when selecting an NVIDIA profile and installing the corresponding packages.
 
-The three pieces are described in the sections below, followed by a
-step-by-step trace of a real installation and a list of known
-limitations.
+The Assistant does not replace MHWD or `pacman`. It supplies recommendations and device-branch data that the Manjaro installation path consumes.
 
----
+## 1. Detection and data inputs
 
-## 1. Entry point: `mhwd -a pci nonfree 0300`
+### 1.1 GPU discovery
 
-The typical invocation on Manjaro is:
+`hardware.py` collects PCI modalias information from sysfs. `database.py` uses the NVIDIA vendor/device information to match the detected device against the loaded `supported-gpus.json` database. Subsystem vendor and device IDs are also considered when the JSON contains subsystem-specific entries.
 
-```shell
-$ sudo mhwd -a pci nonfree 0300
-```
+The selected JSON record is used to construct a `Device` object containing the PCI Device ID, name, subsystem IDs, feature flags and any `legacybranch` value.
 
-This tells `mhwd` to auto-configure (`-a`) PCI devices (`pci`) with
-a non-free driver (`nonfree`) whose class ID is `0300` (VGA
-compatible controller).
+### 1.2 NVIDIA supported-device documents
 
-`Mhwd::tryToParseCmdLineOptions()` in `src/Mhwd.cpp` parses this as:
+The package build retrieves five NVIDIA documents:
 
-| Variable | Value |
-|---|---|
-| `arguments_.AUTOCONFIGURE` | `true` |
-| `operationType` | `"PCI"` |
-| `autoConfigureNonFreeDriver` | `true` |
-| `autoConfigureClassID` | `"0300"` |
-
-`launch()` then enters the auto-configure block. It iterates over
-`data_.PCIDevices` (all PCI devices), skips any device whose
-`classID_` is not `"0300"`, and for each remaining device selects a
-config.
-
----
-
-## 2. Config selection: the `mhwd` patch
-
-### 2.1 The patch
-
-The `mhwd` package in this fork carries a single patch,
-`0001-mhwd-nvidia-assistant-integration.patch`, which adds a method
-`getNvidiaAssistantConfig()` to the `Mhwd` class and inserts a call
-to it inside the auto-configure loop.
-
-The method runs:
-
-```cpp
-FILE* fp = popen("nvidia-driver-assistant --mhwd-config 2>/dev/null", "r");
-```
-
-and reads one line (up to 256 bytes), strips trailing whitespace,
-and caches the result for the rest of the `mhwd` invocation.
-
-The call site in the auto-configure loop is:
-
-```cpp
-if (autoConfigureNonFreeDriver
-        && "0300" == autoConfigureClassID
-        && "10de" == device->vendorID_)
-{
-    std::string preferredConfig{getNvidiaAssistantConfig()};
-    if (!preferredConfig.empty())
-    {
-        for (auto&& availableConfig : device->availableConfigs_)
-        {
-            if (availableConfig->name_ == preferredConfig)
-            {
-                config = availableConfig;
-                break;
-            }
-        }
-        if (nullptr == config)
-        {
-            consoleWriter_.printWarning(
-                    "nvidia-driver-assistant recommended '"
-                    + preferredConfig
-                    + "' but it is not available for this device; "
-                    "falling back to priority-based selection");
-        }
-    }
-}
-```
-
-The patch only fires when **all three** conditions hold:
-
-1. `autoConfigureNonFreeDriver` is true — i.e. the user passed
-   `nonfree`, not `free`.
-2. `autoConfigureClassID` is `"0300"`.
-3. The device's `vendorID_` is `"10de"` (NVIDIA).
-
-For free-driver invocations (`mhwd -a pci free 0300`), for
-non-display class IDs, and for non-NVIDIA devices, the patch is
-bypassed and the original priority loop runs.
-
-### 2.2 Fallback: priority loop
-
-If the patch does not fire, or if the config name returned by
-`nvidia-driver-assistant --mhwd-config` is not present in the
-device's `availableConfigs_`, `mhwd` falls back to the priority
-loop:
-
-```cpp
-for (auto&& availableConfig : device->availableConfigs_)
-{
-    if (autoConfigureNonFreeDriver || availableConfig->freedriver_)
-    {
-        config = availableConfig;
-        break;
-    }
-}
-```
-
-`availableConfigs_` is populated by `Data::setMatchingConfigs()` for
-each config in `/var/lib/mhwd/db/pci/`, and sorted by
-`Config::priority_` in descending order (higher priority first).
-The loop takes the first matching entry.
-
-The priorities in the `mhwd-db` fork (as of the current package
-version) are:
-
-| Config | Priority | Freedriver |
+| File | Driver generation | Main role in the Assistant |
 |---|---|---|
-| `video-hybrid-intel-nvidia-prime` | 12 | false |
-| `video-hybrid-amd-nvidia-prime` | 12 | false |
-| `video-hybrid-intel-nvidia-580xx-prime` | 10 | false |
-| `video-hybrid-amd-nvidia-580xx-prime` | 10 | false |
-| `video-hybrid-intel-nvidia-470xx-prime` | 9 | false |
-| `video-hybrid-amd-nvidia-470xx-prime` | 9 | false |
-| `video-hybrid-intel-nvidia-390xx-bumblebee` | 8 | false |
-| `video-hybrid-intel-nvidia-340xx-bumblebee` | 8 | false |
-| `video-nvidia` | 7 | false |
-| `video-nvidia-580xx` | 5 | false |
-| `video-nvidia-470xx` | 4 | false |
-| `video-nvidia-390xx` | 3 | false |
-| `video-nvidia-340xx` | 2 | false |
-| `video-virtualmachine` | 2 | true |
-| `video-linux` | 2 | true |
-| `video-modesetting` | 1 | true |
-| `video-vesa` | 0 | true |
+| `supportedchips.html` | Latest 6xx / New Feature Branch | Maps Device IDs to `current` or a legacy branch; used by device classification and `--mhwd-branch`. |
+| `supportedchips580.html` | 580 | Its `Current` list is used to check whether all detected devices can share the 580 driver in a 580 + latest-6xx combination. |
+| `supportedchips470.html` | 470 | Source for generating and auditing 470xx MHWD IDs. |
+| `supportedchips390.html` | 390 | Source for generating and auditing 390xx MHWD IDs. |
+| `supportedchips340.html` | 340 | Source for generating and auditing 340xx MHWD IDs. |
 
-For a system with a single GPU, the priority loop and the patch
-typically agree, because only one config matches the device. The
-patch matters when several configs could apply (e.g. hybrid
-systems); see Section 9.
+The parser in `supported_chips.py` supports two document layouts:
 
----
+- Latest and 580 documents use named sections and table-row IDs such as `devid1380` or `devid2D18_17AA_3E31`.
+- Older 470, 390 and 340 documents use HTML tables with a `Device PCI ID` column. The parser identifies that column in each table and reads the first PCI Device ID token from it. Subsystem Vendor IDs and Subsystem Device IDs are not added to the generated base Device ID list.
 
-## 3. `nvidia-driver-assistant --mhwd-config`
+The older parser stops at the document's legacy-section introduction. This prevents it from accidentally treating an appended list for a different, older driver series as part of the document's own supported-device table.
 
-`_resolve_mhwd_config()` in `cli.py` maps the detected branch to a
-config name:
+The PKGBUILD validates all five documents before packaging. A missing, empty or unparseable required document causes the build to fail.
 
-```python
-def _resolve_mhwd_config(legacy_branch, branch_locked):
-    branch = branch_locked or legacy_branch
-    if branch:
-        branch_str = str(branch).split(".")[0]
-        if branch_str and branch_str != "latest":
-            return "video-nvidia-%sxx" % branch_str
-    return "video-nvidia"
-```
+## 2. Device classification
 
-The mapping:
+`Device` in `device.py` combines information from the selected JSON record and the latest NVIDIA `supportedchips.html` map.
 
-| Detected branch | Config name |
-|---|---|
-| `None` (modern GPU) | `video-nvidia` |
-| `"580"` | `video-nvidia-580xx` |
-| `"470"` | `video-nvidia-470xx` |
-| `"390"` | `video-nvidia-390xx` |
-| `"340"` | `video-nvidia-340xx` |
+The order is important:
 
-The branch is determined by `check_legacy_devices()` inside
-`recommend_driver()`. It reads the `legacybranch` field of the
-matched JSON entry, subject to the defense layers described in
-`docs/Defense.md`.
+1. The JSON `legacybranch` is retained as the primary legacy classification when it is present.
+2. If JSON does not provide a legacy branch, the latest NVIDIA supportedchips map can supply one when the Device ID appears in a legacy section.
+3. If both sources provide a classification but disagree, the code logs a warning and keeps the JSON legacy branch. The HTML value does not silently overwrite an explicit JSON legacy assignment.
+4. A device is treated as supporting the latest 6xx line only when it appears in the latest document's `Current` section and JSON does not assign it a legacy branch.
+5. `supports_580` is set independently by checking the Device ID against the `Current` entries in `supportedchips580.html`.
 
-`--mhwd-config` is called from `mhwd` only. It is not used by any
-other consumer.
+The distinction between `supports_latest_6xx` and `supports_580` is used by the mixed-GPU logic. The latter is not inferred from a GPU name or from the latest document.
 
----
+## 3. Kernel-module flavour selection
 
-## 4. The `MHWDCONFIG` file format
+The Assistant returns either `open` or `closed`.
 
-An `MHWDCONFIG` file is a shell-sourced file that describes a
-graphics driver configuration. It is located at
-`/var/lib/mhwd/db/pci/graphic_drivers/<config>/MHWDCONFIG` (in the
-`mhwd-db` package) and is copied to
-`/var/lib/mhwd/local/pci/<config>/MHWDCONFIG` when installed.
+The core safety rule in `Device._parse_features()` is:
 
-### 4.1 Configuration fields
+> A device assigned to a legacy branch up to and including 580 must use the proprietary (`closed`) kernel module, regardless of an `kernelopen` feature flag in `supported-gpus.json`.
 
-| Field | Example | Purpose |
+The implementation then handles current devices and the JSON feature fallback:
+
+1. If the device has a legacy branch and its numeric branch is 580 or lower, or the legacy branch cannot be parsed, its hint is `proprietary_required`.
+2. If the device is listed in the latest NVIDIA `Current` section and has no legacy assignment, its hint is `open_required`.
+3. For other devices, the feature flags from `supported-gpus.json` are used. The code recognizes `kernelopen` and `gsp_proprietary_supported` and resolves the hint accordingly.
+
+`recommendation.py` aggregates the per-device hints into one system-level flavour. The recommendation is system-wide; it is not simply the result for the first detected GPU.
+
+This code path deliberately avoids treating the `kernelopen` flag as sufficient for a GPU that is already classified as legacy 580 or older.
+
+## 4. Legacy-branch and Manjaro package policy
+
+Two configuration values serve different purposes:
+
+- `min_supported_legacy_branch` in `overrides.yaml` is the Assistant's threshold for treating a legacy branch as directly supported by the common recommendation path. Its current value is 580.
+- `min_official_branch` in `distro.yaml` is the lowest legacy branch currently available in the Manjaro package set. Its current value is 390.
+
+As a result, 390xx and 470xx are initially classified as legacy devices below the Assistant's common 580 threshold, then handled by the Manjaro repository policy as available legacy branches. A 340xx device is recognized by the Assistant, but is below Manjaro's current repository minimum and follows the configured fallback path.
+
+This is a distribution-availability distinction, not a limitation of the parser or ID generator. The Assistant retains 340xx support for detection, branch classification and MHWD ID operations.
+
+For a device requiring 340xx, `--mhwd-branch --mhwd-device-id ID` can still return `340`. However, `--mhwd-config` does not advertise a Manjaro profile for a branch outside the configured repository availability. MHWD cannot install a 340xx profile that is not present in its available configuration database.
+
+## 5. Multi-GPU handling
+
+### 5.1 General rule
+
+`recommend_driver()` evaluates all detected NVIDIA GPUs. It collects legacy devices, computes the module-flavour hints and identifies unsupported combinations. The CLI then applies the Manjaro branch-availability policy.
+
+If a system contains an open-capable GPU alongside a legacy GPU that cannot use the same selected driver, the CLI prioritises the newer GPU and reports that the incompatible legacy device will not work with the selected driver. If all relevant legacy devices are available through the Manjaro package policy, their branch can instead be merged into the selected legacy recommendation.
+
+### 5.2 Legacy 580 plus latest 6xx
+
+This combination receives a specific compatibility check:
+
+- If at least one GPU requires legacy 580 and at least one GPU is listed in the latest 6xx `Current` list, the Assistant checks every detected device against the 580 `Current` list.
+- If every detected device is present in that 580 list, a common 580 driver is selected with the closed kernel module.
+- If any device is absent from the 580 `Current` list, there is no common 580 driver for the complete system. The latest 6xx driver is prioritised for the newer GPU, and the legacy-580 GPU is reported as incompatible with that selection.
+
+The special case does not infer compatibility for 470xx, 390xx or 340xx from the 580 document.
+
+## 6. MHWD interfaces
+
+The Assistant exposes three separate CLI interfaces to MHWD.
+
+| Command | Output | Purpose |
 |---|---|---|
-| `NAME` | `video-nvidia-580xx` | The config name; must match the directory name |
-| `INFO` | `Closed source NVIDIA 580xx drivers for linux.` | Description shown by `mhwd -la` |
-| `VERSION` | `2026.03.05` | Used by `mhwd-db.install` to decide whether to update the local copy |
-| `FREEDRIVER` | `false` | `true` for open-source drivers |
-| `PRIORITY` | `5` | Higher numbers are tried first |
-| `CLASSIDS` | `0300 0302` | PCI class IDs matched |
-| `VENDORIDS` | `10de` | PCI vendor IDs matched, or `*` |
-| `DEVICEIDS` | `>/var/lib/mhwd/ids/pci/nvidia-580xx.ids` | Space-separated list, or `>file` to read from a file |
-| `BLACKLISTEDCLASSIDS` | | Optional exclusion list |
-| `BLACKLISTEDVENDORIDS` | | Optional exclusion list |
-| `BLACKLISTEDDEVICEIDS` | | Optional exclusion list |
-| `CONFLICTS` / `CONFLICTS_32` / `CONFLICTS_64` | | Package names that must be removed first |
-| `CONKMOD` | `nvidia-390xx nvidia-470xx nvidia` | Kernel modules that must be removed |
-| `CONFLDD` / `CONFLDD_64` | | Directories that must be removed |
-| `MHWDCONFLICTS` | `video*nvidia*` | Other mhwd configs that conflict |
-| `MHWDDEPENDS` | `video-linux` | Other mhwd configs that must be installed first |
-| `DEPENDS` / `DEPENDS_32` / `DEPENDS_64` | `nvidia-580xx-utils nvidia-580xx-settings libxnvctrl-580xx` | Package dependencies |
-| `DEPKMOD` | `nvidia-580xx` | Kernel module package(s); the kernel name is prepended at runtime |
-| `OPTREMDEPENDS` / `OPTREMDEPENDS_32` / `OPTREMDEPENDS_64` | | Optional dependencies to demote on removal |
+| `nvidia-driver-assistant --mhwd-config` | MHWD config name, such as `video-nvidia-580xx` | System-level NVIDIA profile recommendation. |
+| `nvidia-driver-assistant --mhwd-branch --mhwd-device-id ID` | Numeric legacy branch or `current` | Per-device branch classification for one NVIDIA PCI Device ID. |
+| `nvidia-driver-assistant --mhwd` | `open` or `closed` | System-level kernel-module flavour for the selected MHWD config. |
 
-In addition to the fields, an `MHWDCONFIG` file may define shell
-functions:
+`--mhwd-branch` bypasses system-wide multi-GPU recommendation and asks only about the supplied Device ID. If the ID is not present in the latest supportedchips map, it exits with an error status instead of guessing.
 
-- `pre_install()` — run before package operations
-- `post_install()` — run after package operations
-- `pre_remove()` — run before package removal
-- `post_remove()` — run after package removal
+`--mhwd-config` maps the resolved branch to a profile name:
 
-The fields are parsed by `Config::readConfigFile()` in
-`src/Config.cpp`.
-
-### 4.2 Multiple hardware ID groups
-
-A single config can match several hardware IDs by repeating the
-`CLASSIDS` / `VENDORIDS` / `DEVICEIDS` triple:
-
-```
-# NVIDIA cards
-CLASSIDS="0300 0302"
-VENDORIDS="10de"
-DEVICEIDS=">/var/lib/mhwd/ids/pci/nvidia-580xx.ids"
-
-# Intel cards
-CLASSIDS="0300"
-VENDORIDS="8086"
-DEVICEIDS="*"
-BLACKLISTEDDEVICEIDS="0be1 8108"
-```
-
-`Config::readConfigFile()` pushes a new `HardwareID` group onto
-`hwdIDs_` each time a `CLASSIDS` field is seen after the previous
-group already has a non-empty `classIDs` list.
-
-`Data::getAllDevicesOfConfig()` then requires **every** group to
-match at least one device. If any group matches no device, the
-entire config is discarded for that device list. This is how the
-hybrid configs require both an NVIDIA and an Intel (or AMD) device
-to be present.
-
-### 4.3 The `>file` syntax for `DEVICEIDS`
-
-When a `DEVICEIDS` value begins with `>`, `readConfigFile()` reads
-the file whose path follows the `>` and uses its whitespace-separated
-contents as the device ID list.
-
-For the NVIDIA configs, these files live in
-`/var/lib/mhwd/ids/pci/` and are generated by the `mhwd-nvidia`
-helper script from two files extracted from the NVIDIA `.run`
-installer:
-
-- `README.txt` — NVIDIA's own list of supported GPUs;
-- `kernel/nvidia/nv-kernel-amd64.o_binary` — the compiled kernel
-  module binary, used to extract the actual device IDs.
-
-The result is a single line of space-separated hex device IDs, e.g.:
-
-```
-1b06 1d81 1380 1381 ...
-```
-
-The PKGBUILD for `nvidia-390xx-utils` shows the generation step:
-
-```bash
-sh -e ${srcdir}/mhwd-nvidia \
-    ${srcdir}/${_pkg}/README.txt \
-    ${srcdir}/${_pkg}/kernel/nvidia/nv-kernel-amd64.o_binary \
-    > ${pkgdir}/var/lib/mhwd/ids/pci/nvidia-390xx.ids
-```
-
-This is important for `docs/Defense.md`: the device-to-config
-matching uses `.ids` files generated from NVIDIA's own binary, not
-from `supported-gpus.json`. A JSON manipulation cannot change which
-config a given PCI device matches.
-
-### 4.4 The `nvidia-recommended-driver` call inside `MHWDCONFIG`
-
-Several configs (notably `video-nvidia`, `video-nvidia-580xx`,
-`video-nvidia-470xx`, `video-nvidia-390xx`, `video-nvidia-340xx`,
-and the hybrid variants) contain a line of the form:
-
-```bash
-DEPKMOD="nvidia-580xx"
-[[ "$(nvidia-recommended-driver)" == "open" ]] && DEPKMOD="nvidia-580xx-open"
-```
-
-`nvidia-recommended-driver` is a small shell wrapper (`show-driver`
-in the repository):
-
-```bash
-#!/bin/bash
-driver=$(nvidia-driver-assistant --mhwd)
-echo $driver
-```
-
-So the config runs `nvidia-driver-assistant --mhwd` a **second
-time** during installation. The output is `open` or `closed`, and it
-selects between the closed and open variants of the kernel module
-package.
-
-The two `nvidia-driver-assistant` calls serve different purposes:
-
-| Call | When | Returns | Consumer |
-|---|---|---|---|
-| `--mhwd-config` | Before install, from `mhwd` C++ | Config name (e.g. `video-nvidia-580xx`) | `mhwd` patch |
-| `--mhwd` | During install, from the config's `post_install()` | `open` or `closed` | `nvidia-recommended-driver` |
-
-The two calls are independent. Both use the same underlying
-recommendation logic and both are protected by the layers described
-in `docs/Defense.md`.
-
----
-
-## 5. The shell script: `scripts/mhwd`
-
-`Mhwd::runScript()` builds a command line of the form:
-
-```shell
-exec /var/lib/mhwd/scripts/mhwd --install --sync \
-     --cachedir /var/cache/pacman/pkg \
-     --pmconfig /etc/pacman.conf \
-     --pmroot / \
-     --config /var/lib/mhwd/local/pci/video-nvidia-580xx/MHWDCONFIG \
-     --device "0300|10de|1380|1:0:0" \
-     2>&1
-```
-
-and runs it via `popen()`, forwarding the output to `mhwd`'s stdout
-with a green colour marker.
-
-`scripts/mhwd` parses these arguments, sets up some globals, and
-sources the config. The relevant globals and steps:
-
-### 5.1 Globals
-
-- `ARCH=$(uname -m)` — used to decide whether to install 32-bit
-  packages.
-- `KERNELS=$(pacman -Qqs "^linux[0-9][0-9]?([0-9])$")` — list of
-  installed kernel packages (e.g. `linux618 linux61`).
-- `MHWD64_IS_LIB32` — whether 32-bit packages should be installed,
-  read from `/etc/mhwd-x86_64.conf` or defaulting to `true`.
-
-### 5.2 Sourcing the config
-
-```bash
-. "${CONFIGPATH}"
-```
-
-Then, for each class ID in `$CLASSIDS`, the corresponding include
-file in `/var/lib/mhwd/scripts/include/` is sourced. The `0300`
-include provides helper functions such as
-`MHWD_ADD_DEVICE_SECTION`, `MHWD_ADD_DRI`, `MHWD_ADD_COMPOSITING`,
-and `MHWD_ADD_BACKSPACE`, used by many configs' `post_install()`.
-
-### 5.3 The install flow
-
-When `INSTALL=true`, the script runs the following steps in order.
-
-**1. `pre_install()`** — if the config defines it.
-
-**2. Remove conflicting directories** (`CONFLDD`, `CONFLDD_64`).
-
-**3. `MHWD_CHECK_KMODS()`** — for each installed kernel, and for
-each module in `CONKMOD` and `DEPKMOD`, build the fully qualified
-module names. For example:
-
-| Config value | Installed kernel | Result |
-|---|---|---|
-| `CONKMOD="nvidia-390xx nvidia-470xx nvidia"` | `linux618` | `CONKMODS="linux618-nvidia-390xx linux618-nvidia-470xx linux618-nvidia"` |
-| `DEPKMOD="nvidia-580xx"` | `linux618` | `DEPKMODS="linux618-nvidia-580xx"` |
-| `DEPKMOD="nvidia-580xx-open"` (from the open branch) | `linux618` | `DEPKMODS="linux618-nvidia-580xx-open"` |
-
-**4. Remove conflicting packages** (`CONFLICTS`, `CONFLICTS_32`,
-`CONFLICTS_64`, `CONKMODS`) via `pacman -Rs`.
-
-**5. Install dependencies** (`DEPENDS`, `DEPENDS_32`, `DEPENDS_64`,
-`DEPKMODS`) via:
-
-```bash
-pacman --needed -S${SYNC} ${PACKAGES}
-pacman -D --asexplicit ${PACKAGES}
-```
-
-`-S${SYNC}` is `-Sy` if `--sync` was passed to the script.
-
-Note that `DEPENDS` (the userspace packages, e.g.
-`nvidia-580xx-utils`) is separate from `DEPKMODS` (the kernel module
-package, e.g. `linux618-nvidia-580xx`). Both are installed in the
-same `pacman` invocation.
-
-**6. `post_install()`** — if the config defines it. This is where
-the Xorg configuration is created, the `nvidia_drm.modeset=1` option
-is written, and `mhwd-gpu` is called.
-
-### 5.4 The Xorg configuration step
-
-Most `post_install()` functions end with:
-
-```bash
-mhwd-gpu --setmod nvidia --setxorg "${XORGFILE}"
-```
-
-`mhwd-gpu` (a shell script in `scripts/mhwd-gpu`) then:
-
-- Writes `/etc/modprobe.d/mhwd-gpu.conf` with blacklist entries for
-  `nouveau`, `ttm`, `drm_kms_helper`, and `drm`.
-- Writes `/etc/modules-load.d/mhwd-gpu.conf` with `nvidia` (or
-  `nvidia_drm`, depending on the config).
-- Symlinks `/etc/X11/xorg.conf.d/90-mhwd.conf` to `$XORGFILE`.
-
-For `video-nvidia-580xx`, the config additionally appends:
-
-```bash
-echo "options nvidia_drm modeset=1" >> "${MHWDGPU_MODOPTNVIDIA}"
-```
-
-to `/etc/modprobe.d/mhwd-gpu.conf`.
-
-### 5.5 The removal flow
-
-Symmetric to install:
-
-1. `pre_remove()` — if defined.
-2. `MHWD_CHECK_KMODS()` — rebuild `CONKMODS` and `DEPKMODS`.
-3. `pacman -Rs` on the union of `DEPENDS`, `DEPKMODS`,
-   `CONKMODS`.
-4. `pacman -D --asdeps` on `OPTREMDEPENDS*`.
-5. `post_remove()` — removes the Xorg symlink and modprobe entries.
-
-The `post_remove()` of every standard config ends with
-`mhwd-gpu --check`, which removes `/etc/X11/xorg.conf.d/90-mhwd.conf`
-if its target no longer exists.
-
----
-
-## 6. End-to-end trace: GTX 750 Ti on Manjaro
-
-This section walks through `sudo mhwd -a pci nonfree 0300` on a
-system with a single GTX 750 Ti.
-
-### 6.1 `mhwd` — parse and discover
-
-`Mhwd::launch()` reads `PCIDevices`. The GTX 750 Ti has
-`classID_ = "0300"`, `vendorID_ = "10de"`, `deviceID_ = "1380"`.
-
-### 6.2 `mhwd` — call `nvidia-driver-assistant --mhwd-config`
-
-The patch condition holds (`nonfree`, `0300`, `10de`). `mhwd` runs:
-
-```shell
-$ nvidia-driver-assistant --mhwd-config
-```
-
-The Python tool:
-
-1. `get_nvidia_devices()` finds device `0x1380`.
-2. `_parse_features()` runs the layered checks:
-   - Step 0: `supportedchips.html` parser maps `1380` to legacy
-     branch `580`, so `driver_hint = proprietary_required`,
-     `original_legacy_branch = "580"`.
-   - Step 3 would have done the same even without step 0, because
-     the JSON says `legacybranch: "580.xx"`.
-3. `check_legacy_devices()` returns `("580", [])`.
-4. `_resolve_mhwd_config("580", None)` returns
-   `"video-nvidia-580xx"`.
-5. `--mhwd-config` prints `video-nvidia-580xx` to stdout and exits
-   `0`.
-
-`mhwd` receives the string `video-nvidia-580xx`.
-
-### 6.3 `mhwd` — pick the config
-
-The patch looks for `video-nvidia-580xx` in
-`device->availableConfigs_`. The GTX 750 Ti is in
-`nvidia-580xx.ids` (generated by the `nvidia-580xx-utils` PKGBUILD
-from `README.txt` and `nv-kernel-amd64.o_binary`), so
-`video-nvidia-580xx` is present. `config = video-nvidia-580xx`.
-
-If the config were not present, `mhwd` would fall back to the
-priority loop.
-
-### 6.4 `mhwd` — install
-
-`performTransaction(config, INSTALL)` calls `runScript(config,
-INSTALL)`, which builds:
-
-```shell
-exec /var/lib/mhwd/scripts/mhwd --install --sync \
-     --cachedir /var/cache/pacman/pkg \
-     --pmconfig /etc/pacman.conf \
-     --pmroot / \
-     --config /var/lib/mhwd/local/pci/video-nvidia-580xx/MHWDCONFIG \
-     --device "0300|10de|1380|1:0:0"
-```
-
-### 6.5 `scripts/mhwd` — source and resolve
-
-The script sources the config. The config defines:
-
-```bash
-DEPKMOD="nvidia-580xx"
-[[ "$(nvidia-recommended-driver)" == "open" ]] && DEPKMOD="nvidia-580xx-open"
-```
-
-Because the GTX 750 Ti is legacy 580, `nvidia-recommended-driver`
-runs `nvidia-driver-assistant --mhwd`, which returns `closed`
-(step 3 of `_parse_features()`). So `DEPKMOD` stays
-`nvidia-580xx`.
-
-`MHWD_CHECK_KMODS()` converts `DEPKMOD="nvidia-580xx"` and the
-installed kernel `linux618` into `DEPKMODS="linux618-nvidia-580xx"`.
-
-### 6.6 `scripts/mhwd` — call pacman
-
-The final `pacman` invocation installs the userspace packages and
-the kernel module:
-
-```shell
-$ pacman --needed -Sy \
-    nvidia-580xx-utils nvidia-580xx-settings libxnvctrl-580xx \
-    linux618-nvidia-580xx
-```
-
-### 6.7 `post_install()`
-
-The `video-nvidia-580xx` `post_install()`:
-
-- creates `/etc/X11/mhwd.d/nvidia.conf` via `nvidia-xconfig`;
-- adds a `Section "ServerFlags"` block (for compatibility);
-- runs `mhwd-gpu --setmod nvidia --setxorg ...`, which blacklists
-  `nouveau`/`ttm`/`drm` and symlinks `90-mhwd.conf`;
-- loads `nvidia_drm`;
-- appends `options nvidia_drm modeset=1` to
-  `/etc/modprobe.d/mhwd-gpu.conf`.
-
-After the script returns, `mhwd` copies the config directory from
-`/var/lib/mhwd/db/pci/graphic_drivers/video-nvidia-580xx/` to
-`/var/lib/mhwd/local/pci/video-nvidia-580xx/` and updates its
-installed-config cache.
-
----
-
-## 7. The `mhwd-db` package
-
-The `mhwd-db` package provides the contents of
-`/var/lib/mhwd/db/pci/graphic_drivers/` and
-`/var/lib/mhwd/db/pci/network_drivers/`. Its PKGBUILD (`mhwd-db`)
-installs the whole `pci/` tree from the fork of the `mhwd-db`
-repository.
-
-The `mhwd-db.install` script's `post_upgrade()` iterates over every
-config in `graphic_drivers/` and `network_drivers/` and compares its
-`VERSION` field against the version of the corresponding file in
-`/var/lib/mhwd/local/pci/`. If the versions differ, the new
-`MHWDCONFIG` is copied to the local directory. This is how a
-`pacman -Syu` propagates updated config files to already-installed
-systems.
-
-The `mhwd-db` package in this fork depends on:
-
-- `mhwd-nvidia-340xx`, `mhwd-nvidia-390xx`, `mhwd-nvidia-470xx`,
-  `mhwd-nvidia-580xx`, `mhwd-nvidia` — the packages that ship the
-  `.ids` files;
-- `nvidia-driver-assistant` — the Python decision engine that the
-  `MHWDCONFIG` files call.
-
-The `mhwd-nvidia-*` packages are produced by the corresponding
-`nvidia-*xx-utils` PKGBUILDs (see Section 4.3).
-
----
-
-## 8. The `nvidia-recommended-driver` wrapper
-
-`show-driver` (installed as `/usr/bin/nvidia-recommended-driver`) is
-a three-line shell wrapper:
-
-```bash
-#!/bin/bash
-driver=$(nvidia-driver-assistant --mhwd)
-echo $driver
-```
-
-Its purpose is to let the `MHWDCONFIG` files ask the Python engine
-for the kernel module flavor without hardcoding the answer. All
-NVIDIA configs in the `mhwd-db` fork use it.
-
-The wrapper has a comment saying it is deprecated, in favour of
-calling `nvidia-driver-assistant --mhwd` directly from the config.
-The existing configs still use the wrapper; a future cleanup could
-inline it.
-
----
-
-## 9. Known limitations and edge cases
-
-The current implementation has several behaviours that are worth
-documenting, because they are not obvious from the code.
-
-### 9.1 The patch only fires for `classID == "0300"`
-
-If a user runs `mhwd -a pci nonfree 0302` (a 3D controller, sometimes
-used by discrete laptop GPUs), the patch does not fire
-(`"0300" == autoConfigureClassID` is false). The priority loop
-handles the selection instead.
-
-In practice, most configs match both `0300` and `0302` via their
-`CLASSIDS` field, so the outcome is usually the same. But the patch
-is not involved in that case.
-
-### 9.2 The patch and the priority loop disagree on hybrid systems
-
-On a system with an Intel iGPU and an NVIDIA GPU, the priority loop
-for the Intel device selects `video-hybrid-intel-nvidia-prime`
-(priority 12). The patch for the NVIDIA device selects
-`video-nvidia` (or `video-nvidia-580xx`), because
-`nvidia-driver-assistant --mhwd-config` only sees NVIDIA devices
-and does not know that a hybrid configuration is appropriate.
-
-The two selections conflict. In the loop over `configs_`,
-`mhwd` will install the hybrid config first, then fail on the second
-config because `MHWDCONFLICTS="video*nvidia*"` matches the
-already-installed hybrid config.
-
-This is a known behaviour of the current patch. Fixing it would
-require either:
-
-- extending `--mhwd-config` to detect the presence of a hybrid
-  partner (Intel or AMD GPU) and return the hybrid config name, or
-- making the patch skip when a hybrid config is available for the
-  same device.
-
-Neither is implemented.
-
-### 9.3 Mixed legacy and modern NVIDIA GPUs
-
-On a system with both a legacy GPU (e.g. GTX 750 Ti) and a modern
-GPU (e.g. RTX 4070), the priority loop queues two configs
-(`video-nvidia-580xx` for the 750 Ti, `video-nvidia` for the 4070).
-The two configs conflict via `MHWDCONFLICTS="video*nvidia*"`, so the
-second install fails.
-
-This is not specific to the patch; the same failure happens with
-the priority loop alone.
-
-### 9.4 Unknown GPUs
-
-If a device is not listed in any `nvidia-*.ids` file (e.g. a
-newly-released GPU before `nvidia-utils` is updated), no config is
-in `availableConfigs_`. The patch's `--mhwd-config` returns
-`video-nvidia`, `mhwd` prints a warning ("recommended ... but it is
-not available for this device"), the priority loop finds nothing,
-and `mhwd` reports "No config found for device".
-
-The Python tool, independently, classifies the unknown device as
-`open_required` (via `_parse_features()` step 5 fallback). This is
-not used by `mhwd` in that path.
-
----
-
-## 10. Files and directories
-
-| Path | Purpose |
+| Resolved branch | Profile name |
 |---|---|
-| `/usr/bin/nvidia-driver-assistant` | Python entry point (from `nvidia-driver-assistant` package) |
-| `/usr/bin/nvidia-recommended-driver` | `show-driver` wrapper (from `nvidia-driver-assistant` package) |
-| `/usr/share/nvidia-driver-assistant/supported-gpus/supported-gpus.json` | Upstream JSON, extracted from the DEB |
-| `.../nvidia_driver_assistant/data/supportedchips.html` | Parser input, downloaded by the PKGBUILD |
-| `/usr/bin/mhwd` | The C++ `mhwd` binary |
-| `/var/lib/mhwd/scripts/mhwd` | The bash script sourced by `runScript()` |
-| `/var/lib/mhwd/scripts/include/<classid>` | Per-class helper functions |
-| `/var/lib/mhwd/db/pci/graphic_drivers/<config>/MHWDCONFIG` | Config database (from `mhwd-db`) |
-| `/var/lib/mhwd/db/pci/network_drivers/<config>/MHWDCONFIG` | Network config database (from `mhwd-db`) |
-| `/var/lib/mhwd/local/pci/<config>/MHWDCONFIG` | Installed configs (copied by `installConfig`) |
-| `/var/lib/mhwd/ids/pci/nvidia-*.ids` | Device ID lists (from `mhwd-nvidia-*` packages) |
-| `/etc/mhwd-x86_64.conf` | Optional lib32 override |
-| `/etc/X11/xorg.conf.d/90-mhwd.conf` | Symlink to the active Xorg config |
-| `/etc/modprobe.d/mhwd-gpu.conf` | Blacklist and modprobe options |
-| `/etc/modules-load.d/mhwd-gpu.conf` | Modules to load at boot |
-| `/etc/modules-load.d/mhwd-gpu.conf` | Modules to load at boot |
-| `/etc/X11/mhwd.d/nvidia.conf` | Generated Xorg config for the NVIDIA driver |
+| No legacy branch / latest driver | `video-nvidia` |
+| `580` | `video-nvidia-580xx` |
+| `470` | `video-nvidia-470xx` |
+| `390` | `video-nvidia-390xx` |
+| `340` | `video-nvidia-340xx` in the generic mapping, but the Manjaro availability policy prevents advertising an unavailable 340xx package/profile |
 
----
+The final point is important: branch recognition does not create a profile or installable package. The Manjaro policy has a minimum official branch of 390.
 
-## 11. See also
+## 7. MHWD integration modes
 
-- `docs/Defense.md` — why the Python decision logic has multiple
-  hardcoded layers, and how they interact with `supported-gpus.json`.
-- `docs/Configuration.md` — the YAML configuration files that drive
-  the Python engine.
-- `docs/Building.md` — how to build the fork, the patched `mhwd`,
-  and the `mhwd-db` fork locally.
+The `mhwd` PKGBUILD in the associated PKGBUILDs repository contains two alternative patches. `NVIDIA_ASSISTANT_MODE` selects exactly one. The patches target the MHWD auto-configure path for non-free NVIDIA display devices.
+
+### 7.1 Authority mode
+
+Patch: `0001-mhwd-nvidia-assistant-integration.patch`
+
+1. MHWD calls `nvidia-driver-assistant --mhwd-config` to obtain the system-level NVIDIA profile recommendation.
+2. MHWD parses the branch represented by that profile name.
+3. When processing NVIDIA devices, MHWD searches the available profiles for the Assistant's selected branch.
+4. Hybrid profiles are considered using the same NVIDIA branch information.
+5. If the Assistant does not return a valid config/branch, or the matching profile is unavailable, MHWD does not select an NVIDIA profile through its normal priority fallback.
+
+This mode gives the Assistant authority over the NVIDIA branch decision.
+
+### 7.2 Corrective mode
+
+Patch: `0002-mhwd-nvidia-assistant-corrective.patch`
+
+1. MHWD first performs its normal priority-based profile selection.
+2. Hybrid NVIDIA profiles attached to the integrated GPU are deferred so that the NVIDIA device can drive the branch validation.
+3. For each NVIDIA PCI Device ID, MHWD calls `nvidia-driver-assistant --mhwd-branch --mhwd-device-id ID`.
+4. MHWD extracts the branch from its selected profile and compares it with the Assistant's supportedchips result.
+5. If the branches differ, MHWD searches for a profile with the required branch while retaining the original profile's hybrid/non-hybrid type.
+6. If an alternative profile exists, MHWD corrects the selection. If none exists, it skips that NVIDIA device rather than installing a mismatched profile.
+7. If the Assistant cannot determine a branch, MHWD retains its original priority-based selection.
+
+This mode keeps MHWD's native priority order as the starting point and uses the Assistant as a per-device correction layer.
+
+### 7.3 Mode selection and patch application
+
+The two patches implement alternative behaviours for the same MHWD code path and must never be applied together. The PKGBUILD selects one by setting:
+
+```bash
+NVIDIA_ASSISTANT_MODE="authority"
+# or
+NVIDIA_ASSISTANT_MODE="corrective"
 ```
 
----
+The Manjaro-targeted PKGBUILD uses the standard GNU `patch` utility to apply the selected patch. See [Building](Building.md).
+
+## 8. MHWDCONFIG and package installation
+
+MHWD profiles are stored under `/var/lib/mhwd/db/pci/graphic_drivers/` and contain an `MHWDCONFIG` file. When installed, the selected profile is copied to the local MHWD configuration directory.
+
+The configuration contains package dependencies, conflicting packages/modules, and optional shell hooks. MHWD's shell script sources the selected file, resolves the installed kernel package names and calls `pacman` to remove conflicting packages and install the requested userspace and kernel-module packages.
+
+For profiles that support open/closed module selection, the `DEPKMOD` value is selected from the Assistant's `--mhwd` output. The compatibility wrapper installed as `/usr/bin/nvidia-recommended-driver` calls that interface. It is retained because the current MHWD configuration files use it; the wrapper is marked deprecated in its own source comment in favour of calling `nvidia-driver-assistant --mhwd` directly.
+
+The Assistant does not execute MHWD's package transaction itself. The final installation remains the responsibility of MHWD and `pacman`.
+
+## 9. MHWD PCI ID lists
+
+MHWD profile `DEVICEIDS` values can reference a file under `/var/lib/mhwd/ids/pci/`. The NVIDIA split packages continue to provide these files through their `mhwd-nvidia*` package outputs.
+
+The Assistant can generate each list:
+
+| Assistant argument | MHWD filename |
+|---|---|
+| `latest` or `6xx` | `nvidia.ids` |
+| `580` | `nvidia-580xx.ids` |
+| `470` | `nvidia-470xx.ids` |
+| `390` | `nvidia-390xx.ids` |
+| `340` | `nvidia-340xx.ids` |
+
+`--generate-ids` writes a header and sorted four-digit PCI Device IDs to standard output. The calling PKGBUILD redirects this output into the package staging directory. It does not alter the live MHWD database.
+
+`--check-ids` compares any existing target `.ids` files with the corresponding NVIDIA supported-device document. It is read-only and reports missing, undocumented, duplicate and malformed entries. It does not require all five files to exist.
+
+## 10. End-to-end examples
+
+### 10.1 GTX 750 Ti (legacy 580)
+
+For a GTX 750 Ti with Device ID `1380`:
+
+1. The hardware detector obtains the NVIDIA PCI identity from sysfs.
+2. `database.py` matches the device in `supported-gpus.json`.
+3. `Device` retains the JSON legacy branch when it is present. The latest NVIDIA supportedchips map supplies supporting classification and `supports_580` is checked against the 580 Current list.
+4. The legacy-580 safety rule chooses the closed kernel-module flavour.
+5. The Manjaro repository policy accepts 580 as a repository branch.
+6. `--mhwd-config` can return `video-nvidia-580xx`; `--mhwd` returns `closed`.
+7. MHWD selects the corresponding profile and installs the packages named by its `MHWDCONFIG`.
+
+Useful checks:
+
+```shell
+nvidia-driver-assistant --simulate-gpu 750 --json
+nvidia-driver-assistant --simulate-gpu 750 --mhwd
+```
+
+### 10.2 A 340xx GPU
+
+For a Device ID classified by NVIDIA as legacy 340:
+
+1. The Assistant can identify the legacy branch from the latest supportedchips data or JSON legacy field.
+2. The legacy closed-module rule applies.
+3. The Manjaro policy sees that 340 is below `min_official_branch: 390`.
+4. The normal CLI recommendation path reports the 340xx requirement and follows its configured fallback instructions.
+5. `--mhwd-branch --mhwd-device-id ID` can still report `340`.
+6. `--generate-ids 340` and `--check-ids` retain their functionality.
+7. `--mhwd-config` does not claim that an unavailable Manjaro 340xx profile can be installed.
+
+This is the intended separation between Assistant capability and current Manjaro package availability.

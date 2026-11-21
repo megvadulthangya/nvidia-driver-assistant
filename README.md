@@ -1,479 +1,235 @@
-# nvidia-driver-assistant (Manjaro fork)
+# NVIDIA Driver Assistant — Manjaro integration
 
+A Manjaro-focused fork of NVIDIA's `nvidia-driver-assistant`. It detects NVIDIA GPUs, determines a suitable NVIDIA driver branch and kernel-module flavour, and exposes a command-line interface for both users and Manjaro's `mhwd` tooling.
 
+The project also provides the NVIDIA PCI Device ID data used by MHWD. It can generate and audit the `.ids` files consumed by MHWD's NVIDIA profiles.
 
-[![Compatibility Validation](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml/badge.svg?branch=manjaro)](https://github.com/megvadulthangya/nvidia-driver-assistant/actions/workflows/compatibility-validation.yml)
+> **Scope:** This branch documents the Manjaro-targeted integration. It describes the capabilities of this program separately from the driver packages currently available in Manjaro's repositories.
 
+## Main capabilities
 
-A fork of NVIDIA's `nvidia-driver-assistant`, reduced to Manjaro-only
-and extended with a defense against `supported-gpus.json`
-manipulation.
+- Detect NVIDIA display devices from PCI information in sysfs.
+- Match detected PCI Device IDs against NVIDIA's `supported-gpus.json` data.
+- Use NVIDIA's `supportedchips.html` documents to classify legacy branches and determine Current-device support.
+- Recommend the `open` or `closed` NVIDIA kernel-module flavour.
+- Handle supported legacy branches and report when a detected GPU needs a driver outside the current Manjaro repository set.
+- Evaluate multi-GPU configurations, including mixed legacy-580 and latest-6xx systems.
+- Provide machine-readable output with `--json`.
+- Integrate with MHWD through dedicated command-line interfaces.
+- Generate MHWD `.ids` lists for 6xx/latest, 580, 470, 390 and 340.
+- Audit existing MHWD `.ids` files without changing them.
 
-The tool detects NVIDIA GPUs, recommends the optimal driver (open or
-proprietary kernel modules) and legacy branch, handles multi-GPU and
-legacy hardware scenarios, and provides Manjaro-specific installation
-instructions. It integrates with `mhwd` through a small patch to the
-`mhwd` binary and a fork of the `mhwd-db` configuration database.
+## Driver branches and distribution availability
 
----
+The Assistant understands five NVIDIA driver generations for its data-processing and MHWD-ID functions:
 
-## Why this fork exists
+| Branch | Assistant capability | Current Manjaro package availability |
+|---|---|---|
+| Latest 6xx | Full support | Current driver line |
+| 580xx | Full support | Legacy driver line |
+| 470xx | Full support | Legacy driver line |
+| 390xx | Full support | Oldest legacy branch currently available in the Manjaro package set |
+| 340xx | Full support in the Assistant | Not currently provided by the Manjaro repositories |
 
-In November 2025, NVIDIA released a `supported-gpus.json` that marked
-every legacy 580 GPU (`GTX 750 Ti`, `GTX 1080 Ti`, `TITAN V`, …) as
-`kernelopen`, even though the open kernel module cannot bind to
-Maxwell, Pascal, or Volta hardware. The upstream tool followed the
-JSON and recommended `nvidia-open-580` for those cards, which does
-not produce a working driver.
+**The 340xx capability is intentionally retained.** The program can classify 340xx hardware, read and validate NVIDIA's 340 supported-device document, generate a 340xx MHWD ID list, and audit an existing 340xx `.ids` file. The current Manjaro distribution policy starts repository availability at 390xx, so recognizing a 340xx GPU does not mean that Manjaro's repositories provide a 340xx driver or MHWD profile.
 
-The same JSON is still shipped in the most recent upstream release
-(`0.62.71.10`, 2026-09-24). The upstream Python code still trusts
-the `kernelopen` flag for the module-flavor decision. A system with a
-stock `nvidia-driver-assistant` still resolves the GTX 750 Ti to
-`nvidia-open-580`.
+The two boundaries are configured separately:
 
-This fork does not patch the JSON. It uses the JSON as one input
-among many, and it does not use the JSON for the decision that the
-JSON has historically gotten wrong. The hardcoded rules in
-`overrides.yaml` and `architecture.yaml` produce the same output
-regardless of what the JSON says.
+- `min_supported_legacy_branch` controls the Assistant's legacy-branch recommendation handling.
+- `min_official_branch` in `distro.yaml` describes the lowest legacy branch currently available in Manjaro's repositories (390).
 
-The full rationale, the code paths, and the maintenance comparison
-with the patch-based approach are in
-[docs/Defense.md](docs/Defense.md). Read that document before
-modifying `_parse_features()` or `overrides.yaml`.
+See [Configuration](docs/Configuration.md) for details.
 
----
+## How the data is used
 
-## What this fork is, and is not
+The build retrieves two kinds of NVIDIA data:
 
-**Is:**
+1. **`supported-gpus.json` and the NVIDIA EULA** are extracted from NVIDIA's latest published `nvidia-driver-assistant` DEB.
+2. **Five NVIDIA `supportedchips.html` documents** are downloaded for the latest 6xx, 580, 470, 390 and 340 driver generations.
 
-- A drop-in replacement for `nvidia-driver-assistant` on Manjaro.
-- A defense against a specific class of JSON manipulation.
-- A packaging layer that takes `supported-gpus.json` and the NVIDIA
-  EULA from the latest upstream DEB automatically.
-- An `mhwd` integration with a `--mhwd-config` flag and a patched
-  `mhwd` binary.
-- A fork of `mhwd-db` with the 340xx and 580xx configs, and with
-  `DEPKMOD` selected by `nvidia-recommended-driver`.
+The parser handles both the modern anchor/row-ID format used by the latest and 580 documents and the older table format used by 470, 390 and 340. The PKGBUILD validates all five documents before packaging.
 
-**Is not:**
+The documents have different roles. The latest document provides the per-device legacy/current classification used by the recommendation and MHWD branch-query paths. The 580 Current list is used to check whether all devices in a mixed 580/6xx system have a common 580 driver. The 470, 390 and 340 documents are also used to generate and audit their respective MHWD ID lists.
 
-- A multi-distribution tool. The 13 distro entries of the upstream
-  have been removed. `supported_distros` contains only `manjaro`.
-- A patched JSON. The JSON is downloaded verbatim from the upstream
-  DEB. The defense is in the code.
-- A replacement for `mhwd`. `mhwd` still does the installation; the
-  fork only chooses the config and the module flavor.
+## Installation and build
 
----
-
-## Project structure
-
-The core logic is in the `nvidia_driver_assistant/` Python package:
-
-```
-nvidia_driver_assistant/
-├── __init__.py          # Re-exports all public symbols
-├── cli.py               # argparse setup, main() entry point
-├── config.py            # YAML loader, validator, derived constants
-├── hardware.py          # PCI modalias collection, chassis detection
-├── system.py            # SystemInfo, distro detection
-├── database.py          # GPU JSON loading, device matching, simulation data
-├── device.py            # Device class, architecture detection, _parse_features()
-├── recommendation.py    # Driver recommendation, legacy branch logic
-├── output.py            # Instruction display, driver installation
-├── supported_chips.py   # Parser for supportedchips.html
-└── data/
-    ├── architecture.yaml   # GPU architectures (regex patterns, open-capable flag, min_driver)
-    ├── distro.yaml         # Manjaro legacy branch policy
-    ├── overrides.yaml      # Control variables (min_supported_legacy_branch, etc.)
-    └── instructions.yaml   # Manjaro × driver installation templates
-```
-
-The top-level `nvidia-driver-assistant` script is a thin wrapper that
-imports from the package. It exists for backward compatibility with
-the CLI interface and the test harness.
-
-The `supportedchips.html` file is not in the repository. It is
-downloaded by the PKGBUILD at build time and installed into the
-package's `data/` directory. See [docs/Building.md](docs/Building.md)
-Section 6.
-
-### Dependencies
-
-- Python 3
-- `pyyaml` — for loading the YAML configuration files
-
-There is no `gi` dependency: hardware detection uses sysfs, not
-`hwinfo`.
-
----
-
-## Installation
-
-The package is built with `makepkg`:
+The package is built with `makepkg` from this branch:
 
 ```shell
-$ git clone --branch manjaro \
-    https://github.com/megvadulthangya/nvidia-driver-assistant.git
-$ cd nvidia-driver-assistant
-$ makepkg -si
+git clone --branch manjaro-upstream \
+  https://github.com/megvadulthangya/nvidia-driver-assistant.git
+cd nvidia-driver-assistant
+makepkg -si
 ```
 
-The patched `mhwd` and the `mhwd-db` fork are separate packages.
-See [docs/Building.md](docs/Building.md) for the build order.
+The package has Python and PyYAML runtime dependencies. The PKGBUILD installs the command-line program, its Python modules and data, the compatibility wrapper `nvidia-recommended-driver`, `supported-gpus.json`, the NVIDIA EULA, and the packaged documentation.
 
----
+The MHWD application and the MHWD database are separate Manjaro packages. The patches and their build configuration are maintained in the associated PKGBUILDs repository. See [Building](docs/Building.md).
 
-## Command line interface
+## Command-line reference
 
-```
+```text
 nvidia-driver-assistant [options]
 ```
 
-By default, the tool prints the detected GPU(s) and the commands to
-install the recommended driver. With `--install`, it executes the
-commands instead.
+With no special output mode, the program detects the available NVIDIA GPUs, prints a summary, and displays the recommended driver instructions. `--install` executes the generated installation command instead of only displaying it.
 
-### Options
+### Detection and recommendation
 
-| Flag | Description |
+| Option | Description |
 |---|---|
-| `--install` | Install the recommended driver |
-| `--branch <BRANCH>` | Lock the branch to a specific value (must be ≥ 560) |
-| `--supported-gpus <PATH>` | Use a different `supported-gpus.json` |
-| `--sys-path <PATH>` | Use a different `/sys` path (testing) |
-| `--os-release-path <PATH>` | Use a different `os-release` file (testing) |
-| `--distro <DISTRO[:VERSION]>` | Override the detected distro (testing) |
-| `--module-flavor <open\|closed>` | Override the module flavor (testing) |
-| `--mhwd` | Print `open` or `closed` only. Used by the `mhwd-db` configs via `nvidia-recommended-driver` |
-| `--mhwd-config` | Print the mhwd config name only (e.g. `video-nvidia-580xx`). Called by the patched `mhwd` |
-| `--json` | Emit the recommendation as JSON (see below) |
-| `--simulate-gpu <KEY>` | Simulate a single GPU. See [docs/Building.md](docs/Building.md) Section 9.2 for the list of keys |
-| `--simulate-mixed` | Simulate GTX 750 Ti (legacy 580) + RTX 5070 (modern) |
-| `--simulate-badmix` | Simulate GT 740A (legacy 470) + RTX 5070 (modern) |
-| `--verbose` | Verbose output |
+| `--install` | Execute the recommended installation command. |
+| `--branch BRANCH` | Lock the requested driver branch. Values below 560 are rejected by this option. |
+| `--supported-gpus PATH` | Use a specified `supported-gpus.json` file. |
+| `--sys-path PATH` | Use an alternate sysfs root; intended for testing. |
+| `--os-release-path PATH` | Use an alternate `os-release` file; intended for testing. |
+| `--distro DISTRO[:VERSION]` | Override detected distribution information; intended for testing. |
+| `--module-flavor open\|closed` | Override the selected module flavour for testing. |
+| `--json` | Print the recommendation and per-device details as JSON. |
+| `--verbose` | Enable verbose diagnostic logging. |
 
-`--simulate-gpu`, `--simulate-mixed`, and `--simulate-badmix` are
-mutually exclusive.
+### Simulated hardware
 
-### Examples
+| Option | Simulated device or scenario |
+|---|---|
+| `--simulate-gpu 545` | GeForce 545 |
+| `--simulate-gpu nvs290` | Quadro NVS 290 |
+| `--simulate-gpu 7150m` | GeForce 7150M / nForce 630M |
+| `--simulate-gpu 740A` | GeForce 740A |
+| `--simulate-gpu 750` | GeForce GTX 750 Ti |
+| `--simulate-gpu 800A` | GeForce 800A |
+| `--simulate-gpu 4070` | GeForce RTX 4070 |
+| `--simulate-gpu 5070` | GeForce RTX 5070 Laptop |
+| `--simulate-gpu unknown` | Unknown NVIDIA device entry |
+| `--simulate-mixed` | GTX 750 Ti (legacy 580) + RTX 5070 (latest 6xx) |
+| `--simulate-badmix` | GeForce 740A (legacy 470) + RTX 5070 (latest 6xx) |
+
+The three simulation options are mutually exclusive. Simulation is useful for exercising the recommendation logic without the corresponding physical GPUs; it does not replace real-hardware validation.
+
+### MHWD integration interfaces
+
+| Option | Description |
+|---|---|
+| `--mhwd` | Print only `open` or `closed` for MHWD's kernel-module selection. |
+| `--mhwd-config` | Print the MHWD NVIDIA config name for the current system recommendation. |
+| `--mhwd-branch --mhwd-device-id ID` | Print the NVIDIA supported branch for one PCI Device ID. The result is a numeric legacy branch or `current`. |
+
+Examples:
 
 ```shell
-# Detected GPU, print installation instructions
-$ nvidia-driver-assistant
+# Kernel-module flavour for the detected system
+nvidia-driver-assistant --mhwd
 
-# Detected GPU, install directly
-$ sudo nvidia-driver-assistant --install
+# Recommended MHWD config name
+nvidia-driver-assistant --mhwd-config
 
-# Simulated GTX 750 Ti (legacy 580)
-$ nvidia-driver-assistant --simulate-gpu 750 --verbose
-...
-Legacy GPU detected. Using driver branch 580.
-
-Please copy and paste the following command to install the legacy
-kernel module flavour:
-  sudo pacman -S linux618-nvidia-580xx
-
-# Simulated RTX 4070 (modern, open-capable)
-$ nvidia-driver-assistant --simulate-gpu 4070 --mhwd
-open
-
-# Config name, for mhwd
-$ nvidia-driver-assistant --mhwd-config
-video-nvidia-580xx
+# Classify one PCI Device ID (0x prefix is optional)
+nvidia-driver-assistant --mhwd-branch --mhwd-device-id 1380
 ```
 
----
+`--mhwd-branch` deliberately evaluates one Device ID at a time. It does not run the system-wide multi-GPU recommendation. An unknown ID or an unavailable classification returns a non-zero exit status.
 
-## JSON output format
+`--mhwd-config` is subject to the Manjaro package-availability policy. If the detected GPU requires a branch that Manjaro cannot install through its available MHWD profiles (currently including 340xx), the command exits unsuccessfully rather than inventing an available profile.
 
-With `--json`, the tool prints a single JSON object on stdout:
+### MHWD ID generation and audit
 
-```json
-{
-  "driver": "nvidia",
-  "module_flavor": "open" | "closed",
-  "branch": "<branch or null>",
-  "distro_non_legacy_default": "<branch or null>",
-  "distro_580_legacy_override": "<branch or null>",
-  "legacy_openkernel_restriction": true,
-  "architecture_check_enabled": true,
-  "manjaro_min_official_legacy_branch": 340,
-  "arch_min_repo_legacy_branch": null,
-  "arch_aur_only_branches": [580],
-  "devices": [
-    {
-      "pci_id": "0x1380",
-      "name": "NVIDIA GeForce GTX 750 Ti",
-      "architecture": "maxwell",
-      "type": "desktop",
-      "is_laptop": false,
-      "is_legacy": true,
-      "subsystem_vendor": "0x10DE",
-      "subsystem_device": "0x18FE",
-      "supported_min_driver": "390",
-      "supported_max_driver": "580",
-      "legacy": "580"
-    }
-  ]
-}
-```
+| Option | Description |
+|---|---|
+| `--generate-ids BRANCH` | Generate one MHWD `.ids` list on standard output. Accepted values: `latest`, `6xx`, `580`, `470`, `390`, `340`. |
+| `--check-ids` | Audit any recognized NVIDIA `.ids` files found in the target directory. This mode does not modify files. |
+| `--ids-dir DIR` | Directory to audit with `--check-ids`; default: `/var/lib/mhwd/ids/pci`. |
 
-`manjaro_min_official_legacy_branch` and
-`arch_min_repo_legacy_branch` are read from the loaded
-`DISTRO_REGISTRY`. The Arch fields are retained from upstream for
-compatibility with the shared `_check_driver_compatibility()` code
-path; they are not used by the Manjaro-only `distro_registry`.
-
-The format is stable and intended for installers and automation.
-
----
-
-## How the recommendation is made
-
-The decision logic is in `Device._parse_features()`. It runs these
-steps in order and returns on the first that applies:
-
-| Step | Condition | Effect |
-|---|---|---|
-| 0 | `supportedchips.html` maps the device to a legacy branch | Force `proprietary_required` |
-| 1 | `DISTRO_NON_LEGACY_DEFAULT_BRANCH` is set and the device is non-legacy | Force the branch and `proprietary_required` |
-| 2 | `DISTRO_580_LEGACY_OVERRIDE_BRANCH` is set and the device is 580+ legacy | Force the branch and `proprietary_required` |
-| 3 | `ENABLE_LEGACY_OPENKERNEL_RESTRICTION` and the device is legacy ≤ 580 | Force `proprietary_required` |
-| 4 | `ENABLE_ARCHITECTURE_CHECK` and the device's arch is in `OPEN_UNSUPPORTED_ARCHS` | Force `proprietary_required` |
-| 5 | No earlier step fired | Read the JSON `features` flags |
-
-Steps 3 and 4 are the primary defense. Step 0 is a defense-in-depth
-addition that closes a narrower gap. Steps 1 and 2 are
-distribution-level overrides that default to `null`. Step 5 is the
-upstream behavior, used only as a last resort.
-
-The full explanation, including why each step is load-bearing, is in
-[docs/Defense.md](docs/Defense.md). The YAML fields are described in
-[docs/Configuration.md](docs/Configuration.md).
-
-The branch selection (`check_legacy_devices()`) reads the
-`legacybranch` field of the matched JSON entry, subject to the same
-layers. In `cli.py`, a final safety net flips `open` to `closed` if
-the branch is locked to `≤ 580` and the computed flavor is still
-`open`.
-
----
-
-## Mixed-GPU policy
-
-When a system has multiple NVIDIA GPUs, the recommendation depends on
-which GPUs are present.
-
-### Legacy 580 + modern (`--simulate-mixed`)
-
-Example: GTX 750 Ti (legacy 580) + RTX 5070 (modern).
-
-Both GPUs are individually supported. The engine computes `open` for
-the RTX 5070, and the branch lock from `check_legacy_devices()` is
-`580`. The final safety net in `cli.py` detects the legacy branch and
-flips the flavor to `closed`. Result: `module_flavor: "closed"`,
-`branch: "580"`.
-
-### Unsupported legacy (< 580) + modern (`--simulate-badmix`)
-
-Example: GT 740A (legacy 470) + RTX 5070 (modern).
-
-The 740A is below `min_supported_legacy_branch` (580). The CLI
-detects the open-capable modern GPU and discards the unsupported
-legacy device. Result: `module_flavor: "open"`, `branch: null`. The
-legacy GPU will not work with the recommended driver.
-
-### Legacy 580 + legacy 580
-
-If both GPUs are on the same legacy branch, the branch is used
-directly. If they are on different legacy branches (e.g. one 580,
-one 470), `check_legacy_devices()` picks the higher supported branch
-and marks the other as unsupported. The recommendation is driven by
-the supported branch.
-
-### Limitations
-
-The mixed-GPU handling described here is for the JSON-level
-recommendation. The `mhwd` integration (see below) has known
-limitations for hybrid systems; see [docs/Architecture.md](docs/Architecture.md)
-Section 9.
-
----
-
-## mhwd integration
-
-On Manjaro, the fork plugs into `mhwd` through two calls:
-
-| Call | Trigger | Output | Consumer |
-|---|---|---|---|
-| `nvidia-driver-assistant --mhwd-config` | Before install, from the `mhwd` C++ patch | Config name (e.g. `video-nvidia-580xx`) | `mhwd` |
-| `nvidia-driver-assistant --mhwd` | During install, from the `MHWDCONFIG` `post_install()` | `open` or `closed` | `nvidia-recommended-driver` |
-
-The two calls serve different purposes and both are protected by the
-layers described above. The full chain is documented in
-[docs/Architecture.md](docs/Architecture.md).
-
-The patched `mhwd` binary is a separate package. Its patch is
-`0001-mhwd-nvidia-assistant-integration.patch`, which adds a
-`getNvidiaAssistantConfig()` method to `Mhwd` and inserts a call to
-it in the auto-configure loop. The patch fires only when
-`mhwd -a pci nonfree 0300` is invoked for an NVIDIA display device.
-
-The `mhwd-db` fork ships the `video-nvidia-340xx` and `video-nvidia-580xx`
-configs and the hybrid variants, and it changes `DEPKMOD` for the
-580 and latest configs to call `nvidia-recommended-driver`:
-
-```bash
-DEPKMOD="nvidia-580xx"
-[[ "$(nvidia-recommended-driver)" == "open" ]] && DEPKMOD="nvidia-580xx-open"
-```
-
----
-
-## Legacy 340xx and 390xx
-
-The `nvidia-340xx-utils` and `nvidia-390xx-utils` PKGBUILDs in the
-fork are built on top of the Debian patchset
-(`salsa.debian.org/nvidia-graphics-driver`, branches `340xx/main` and
-`390xx/main`, maintained by Andreas Beckmann) plus Manjaro-specific
-follow-up patches for kernels beyond what Debian has patched. They
-are separate packages from `nvidia-driver-assistant`; the tool
-recommends them by branch, but does not install them.
-
-The 340xx branch is community-maintained and not in the official
-Manjaro repositories. The 390xx branch is still in the official
-repositories, and the fork provides an alternative Debian-based
-build.
-
-The kernel support range, the follow-up patches, and the CVE
-backports are documented in the forum thread at
-`forum.manjaro.org/t/nvidia-340-108-390-157-legacy-drivers-...`.
-See [docs/Building.md](docs/Building.md) Section 8 for the build
-procedure.
-
----
-
-## Live ISOs
-
-Live ISOs with the 340xx and 390xx branches, built from this fork,
-are published outside this project. The current links are on the
-project's Facebook page:
-
-```
-https://www.facebook.com/manjaroawesome
-```
-
-The ISOs are split into two stacks because the 340.108 driver
-requires a legacy-ABI XLibre. This is not a property of this fork;
-it is a consequence of the 340 driver's X ABI. See the forum thread
-for details.
-
----
-
-## We need your feedback
-
-This fork is maintained by one person. It has been tested on legacy
-hardware (Maxwell, Pascal, Volta, and a GeForce 210 on the 340xx
-branch), but **not** on open-kernel-capable hardware (Turing,
-Ampere, Ada, Blackwell). The `--mhwd` → `open` path is verified
-through `--simulate-gpu` and the JSON logic, but not on real cards.
-
-If you own any of the following, please test the fork and report
-back:
-
-- Turing: RTX 20xx, GTX 16xx
-- Ampere: RTX 30xx
-- Ada: RTX 40xx
-- Blackwell: RTX 50xx
-- Any `modern-generic` device (RTX 60xx or newer, if you have one)
-
-What to report:
-
-1. `nvidia-driver-assistant --mhwd` → does it return `open`?
-2. `nvidia-driver-assistant --json` → does `module_flavor` match, and
-   does `branch` match what the driver actually uses?
-3. `mhwd -a pci nonfree 0300` → which config is selected? Does it
-   match `nvidia-driver-assistant --mhwd-config`?
-4. Does the driver installation work (kernel module loads,
-   `nvidia-smi` reports the GPU, OpenGL uses the NVIDIA renderer)?
-
-Negative results — the fork gave the wrong answer — are more
-valuable than positive ones. Open an issue on GitHub or post in the
-Manjaro forum topic. Every data point helps.
-
----
-
-## Test suite
-
-The fork has two test directories:
-
-- `tests/` — the original/baseline suite. 12 tests covering distro
-  detection, modalias collection, device matching, CLI argument
-  validation, driver recommendation, and instruction generation.
-- `moretests/` — an extended suite. 16 tests. Adds legacy branch
-  handling, mixed-GPU policy (`--simulate-mixed`,
-  `--simulate-badmix`), `--json`/`--mhwd` output modes, and
-  malformed JSON handling.
-
-Both use `umockdev` to simulate hardware. No actual NVIDIA GPU is
-required. Dependencies:
-
-- `python3`
-- `pyyaml`
-- `umockdev`
-- `gir1.2-umockdev-1.0`
-
-Run them with:
+Examples:
 
 ```shell
-$ PYTHONPATH=. python3 tests/run --suite test_nvidia_driver_assistant.py
-$ PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
+# Generate ID lists; the caller chooses the output file
+nvidia-driver-assistant --generate-ids latest > nvidia.ids
+nvidia-driver-assistant --generate-ids 580 > nvidia-580xx.ids
+nvidia-driver-assistant --generate-ids 470 > nvidia-470xx.ids
+nvidia-driver-assistant --generate-ids 390 > nvidia-390xx.ids
+nvidia-driver-assistant --generate-ids 340 > nvidia-340xx.ids
+
+# Audit the live MHWD ID directory without changing it
+nvidia-driver-assistant --check-ids
+
+# Audit a staging directory
+nvidia-driver-assistant --check-ids --ids-dir ./staged-ids
 ```
 
-The GitHub Actions workflow runs the tests on every push.
+Generation writes only to standard output. It does not write into `/var/lib/mhwd`; package build functions redirect the output into their own staging directories. The audit reports missing, undocumented, duplicate and malformed IDs. It checks only the files that are present; it does not require every branch-specific file to exist.
 
----
+`--generate-ids` and `--check-ids` are standalone operations and cannot be combined with hardware-detection or installation options. `--ids-dir` is valid only with `--check-ids`.
 
-## For Manjaro packagers and distribution maintainers
+### Example recommendations
 
-- [docs/Defense.md](docs/Defense.md) — the layered defense, why each
-  layer is load-bearing, and how the fork compares to the patch-based
-  approach.
-- [docs/Architecture.md](docs/Architecture.md) — the full `mhwd` →
-  `--mhwd-config` → `MHWDCONFIG` → `nvidia-recommended-driver` →
-  `DEPKMOD` → `pacman` chain.
-- [docs/Configuration.md](docs/Configuration.md) — the YAML files,
-  including `architecture.yaml`, `distro.yaml`, `overrides.yaml`,
-  and `instructions.yaml`. How to add a new architecture, modify the
-  Manjaro policy, or add a distribution.
-- [docs/Building.md](docs/Building.md) — how to build the fork, the
-  patched `mhwd`, and the `mhwd-db` fork. The maintenance workflow
-  for new upstream releases.
+```shell
+# Simulated legacy-580 GPU: proprietary module
+nvidia-driver-assistant --simulate-gpu 750 --mhwd
+# closed
 
----
-
-## Authors and acknowledgment
-
-- Alberto Milone `<amilone@nvidia.com>` — original
-  `nvidia-driver-assistant` author
-- Manjaro Team — packaging adjustments and distribution-specific
-  compatibility fixes
-- Gábor Gyöngyösi `<megvadulthangya@gmail.com>` — fork maintainer,
-  refactoring and enhancements
-
----
-
-## License
-
-The Python code and the packaging files are MIT-licensed. The
-NVIDIA EULA is installed separately as
-`/usr/share/licenses/nvidia-driver-assistant/NVIDIA-EULA` and is
-extracted from the upstream DEB.
+# Simulated latest-6xx GPU: open module
+nvidia-driver-assistant --simulate-gpu 4070 --mhwd
+# open
 ```
 
----
+## JSON output
 
+`--json` emits a single JSON object containing:
+
+- `driver`, `module_flavor` and the effective `branch`;
+- `legacy_closed_kernel_enforced` and `min_supported_legacy_branch`;
+- the Manjaro and retained Arch compatibility policy fields;
+- one record per detected device, including PCI ID, device name, subsystem IDs, the resolved legacy branch, the latest NVIDIA-document classification, and the `supports_latest_6xx` / `supports_580` flags.
+
+The exact schema is defined by the current `cli.py`. Consumers should treat it as a machine interface and validate fields they depend on.
+
+## MHWD integration
+
+The Assistant exposes three distinct interfaces for the MHWD integration:
+
+- `--mhwd-config` supplies a system-level profile name.
+- `--mhwd-branch --mhwd-device-id ID` supplies a per-device branch classification.
+- `--mhwd` supplies the `open` or `closed` kernel-module flavour used by MHWD configuration scripts.
+
+The MHWD package offers two alternative integration modes, selected by `NVIDIA_ASSISTANT_MODE` in its PKGBUILD:
+
+- **authority:** the Assistant's system-level config recommendation drives NVIDIA profile selection.
+- **corrective:** MHWD makes its normal priority-based selection first; the Assistant checks each NVIDIA PCI Device ID and corrects a mismatched branch when a matching profile is available.
+
+Only one patch is applied in a build. The Manjaro-targeted MHWD PKGBUILD uses the standard GNU `patch` utility. The full call chain and mode differences are described in [Architecture](docs/Architecture.md).
+
+## 340xx capability and Manjaro availability
+
+The Assistant intentionally retains 340xx support in its code and data-processing interfaces. This includes:
+
+- reading and parsing `supportedchips340.html`;
+- using the latest `supportedchips.html` mapping to classify a device where that document provides a legacy branch;
+- recognizing a 340xx legacy branch and applying the legacy closed-kernel-module rule;
+- generating `nvidia-340xx.ids` with `--generate-ids 340`;
+- auditing an existing `nvidia-340xx.ids` file with `--check-ids`.
+
+The Manjaro distribution configuration sets `min_official_branch: 390`. Therefore, 340xx is outside the currently available Manjaro repository driver set. For a 340xx GPU, the normal recommendation path reports the unavailable legacy branch and follows the configured fallback instructions. The Assistant's retained technical capability must not be mistaken for a 340xx package or MHWD profile being present in Manjaro's repositories.
+
+## Tests
+
+The repository includes parser tests, MHWD ID-generation/audit tests, and the original and extended hardware/recommendation suites. Run them from the repository root:
+
+```shell
+PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_supported_chips_parser.py' -v
+PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_mhwd_ids.py' -v
+PYTHONPATH=. python3 tests/run --suite test_nvidia_driver_assistant.py
+PYTHONPATH=. python3 moretests/run --suite test_nvidia_driver_assistant.py
+```
+
+The compatibility-validation GitHub Actions workflow downloads and validates all five NVIDIA documents, runs the parser and ID tests, and executes the original and extended test suites. A successful simulated test does not prove operation on every physical GPU, kernel or hybrid-GPU configuration.
+
+## Documentation
+
+- [Architecture](docs/Architecture.md) — decision flow and MHWD integration.
+- [Building](docs/Building.md) — package build, NVIDIA data retrieval, MHWD packaging and tests.
+- [Configuration](docs/Configuration.md) — YAML policy and NVIDIA supported-device documents.
+- [Defense](docs/Defense.md) — module-flavour safeguards, data-source boundaries and limitations.
+
+## Credits and licence
+
+This project is based on NVIDIA's `nvidia-driver-assistant`. The fork contains Manjaro-focused packaging and integration changes. See `COPYING` for the source licence. NVIDIA's driver EULA is distributed separately from the upstream DEB in the package's licence directory.
